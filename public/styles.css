@@ -335,24 +335,35 @@ body.scroll-locked {
 
 /* row-list editor (ingredients / steps) */
 .row-list { display: flex; flex-direction: column; gap: 8px; }
-.row-item { display: flex; align-items: center; gap: 8px; }
+/* top-align so the ▲▼✕📷 buttons stay by the first line when a step textarea
+   grows tall — layout doesn't shift, buttons stay reachable. */
+.row-item { display: flex; align-items: flex-start; gap: 8px; }
 .row-item .row-num {
   min-width: 24px;
   text-align: center;
   font-weight: 700;
   color: var(--primary-text);
   font-size: 14px;
+  padding-top: 12px; /* align the number with the textarea's first text line */
 }
-.row-item .row-bullet { min-width: 18px; text-align: center; color: var(--muted); }
-.row-item input.row-text {
+.row-item .row-bullet { min-width: 18px; text-align: center; color: var(--muted); padding-top: 10px; }
+/* auto-grow textarea: JS sizes height to fit content so a whole step is visible
+   with no inner left/right or up/down scrolling for normal-length text. */
+.row-item .row-text {
   flex: 1;
   min-width: 0;
   padding: 9px 11px;
   border: 1px solid var(--line);
   border-radius: 9px;
-  font-size: 16px;
+  font-size: 16px;      /* >=16px so iOS Safari never auto-zooms on focus */
+  line-height: 1.5;
+  font-family: inherit;
   background: var(--surface);
   color: var(--ink);
+  display: block;
+  resize: none;         /* height is managed by autoGrowRow() */
+  overflow: hidden;     /* grows to fit; no inner scrollbar at normal lengths */
+  min-height: 44px;     /* one comfortable line, aligned with the 44px buttons */
 }
 .row-item .row-btn {
   border: 1px solid var(--line);

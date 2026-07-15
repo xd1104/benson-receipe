@@ -691,6 +691,19 @@ function renderTagMgr() {
 /* ---------- row-list editor (ingredients / steps) ---------- */
 function listEl(kind) { return kind === 'ing' ? $('#f-ingredients-list') : $('#f-steps-list'); }
 
+// Auto-grow a .row-text <textarea>: reset then match content height so the whole
+// text is visible without an inner scrollbar. Height only measures correctly when
+// the element is on-screen, so growAllRows() re-runs after the editor is shown.
+function autoGrowRow(ta) {
+  if (!ta) return;
+  ta.style.height = 'auto';
+  // box-sizing is border-box app-wide, so scrollHeight (padding-box) is short by
+  // the top+bottom border — add it back or the last line gets clipped.
+  const border = ta.offsetHeight - ta.clientHeight;
+  ta.style.height = (ta.scrollHeight + border) + 'px';
+}
+function growAllRows() { $$('.row-list .row-text', $('#editor')).forEach(autoGrowRow); }
+
 function renderRows(kind, values) {
   const list = listEl(kind);
   list.innerHTML = '';
@@ -712,13 +725,16 @@ function addRow(kind, value) {
     ? `<label class="row-btn img" title="加照片"><span aria-hidden="true">📷</span><input class="row-imgfile" type="file" accept="image/*" hidden /></label>`
     : '';
   row.innerHTML = `${marker}
-    <input class="row-text" type="text" placeholder="${isStep ? '這一步做什麼…' : '食材與份量…'}" />
+    <textarea class="row-text" rows="1" placeholder="${isStep ? '這一步做什麼…' : '食材與份量…'}"></textarea>
     ${imgBtn}
     <button type="button" class="row-btn up" title="上移">▲</button>
     <button type="button" class="row-btn down" title="下移">▼</button>
     <button type="button" class="row-btn del" title="刪除">✕</button>
     ${isStep ? '<div class="step-thumb-wrap hidden"><div class="step-thumb-box"><img class="step-thumb" alt="步驟圖" /><button type="button" class="step-thumb-del" title="移除照片" aria-label="移除照片">✕</button></div><span class="step-thumb-hint">點 📷 可換照片</span></div>' : ''}`;
-  $('.row-text', row).value = text;
+  const rowText = $('.row-text', row);
+  rowText.value = text;
+  autoGrowRow(rowText); // fit initial content (re-run by growAllRows once the editor is visible)
+  rowText.addEventListener('input', () => autoGrowRow(rowText)); // grow/shrink as the user types
 
   if (isStep) {
     row._image = image; // existing filename
@@ -781,13 +797,18 @@ function renumber(kind) {
   });
 }
 
+// Steps/ingredients serialize as single-line list items (`- x` / `N. x`); a raw
+// newline inside the text would break that format on save. The textarea is for
+// on-screen wrapping/readability, so collapse any hard line breaks to a space.
+function oneLine(s) { return String(s).split(/\r?\n/).map((x) => x.trim()).filter(Boolean).join(' '); }
+
 function collectRows(kind) {
   if (kind !== 'step') {
-    return $$('.row-item .row-text', listEl(kind)).map((i) => i.value.trim()).filter(Boolean);
+    return $$('.row-item .row-text', listEl(kind)).map((i) => oneLine(i.value)).filter(Boolean);
   }
   return $$('.row-item', listEl('step'))
     .map((row) => {
-      const text = $('.row-text', row).value.trim();
+      const text = oneLine($('.row-text', row).value);
       const step = { text, image: row._image || '' };
       if (row._imageDataUrl) step.imageDataUrl = row._imageDataUrl;
       return step;
@@ -1022,6 +1043,7 @@ function openEditor(id) {
   $('#editor-delete').classList.toggle('hidden', !id);
   $('#f-image').value = '';
   $('#editor').classList.remove('hidden');
+  growAllRows(); // now visible -> textareas can measure & size to their content
 }
 
 function closeEditor() {
@@ -1195,6 +1217,7 @@ async function aiOrganize(id, el) {
     openEditor(null);
     $('#editor-title').textContent = 'AI 整理結果（確認後儲存）';
     fillEditor(r);
+    growAllRows(); // fit the freshly-filled step/ingredient textareas
     switchView('list');
   });
 }
