@@ -1,5 +1,5 @@
 /* Recipe Book service worker — app-shell cache, network-first for API */
-const CACHE = 'recipe-book-v2';
+const CACHE = 'recipe-book-v3';
 const SHELL = [
   '/',
   '/index.html',

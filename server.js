@@ -125,7 +125,12 @@ function recipeToMarkdown(r) {
   fm.push('');
   fm.push('## 步驟');
   fm.push('');
-  (r.steps || []).forEach((s, i) => fm.push(`${i + 1}. ${s}`));
+  (r.steps || []).forEach((s, i) => {
+    const text = typeof s === 'string' ? s : s && s.text ? s.text : '';
+    const img = typeof s === 'string' ? '' : s && s.image ? s.image : '';
+    fm.push(`${i + 1}. ${text}`);
+    if (img) fm.push(`   ![step](images/${img})`);
+  });
   fm.push('');
   if (r.notes && String(r.notes).trim()) {
     fm.push('## 備註');
@@ -193,8 +198,18 @@ function markdownToRecipe(id, text) {
       const m = /^\s*-\s+(.*)$/.exec(line);
       if (m && m[1].trim()) r.ingredients.push(m[1].trim());
     } else if (section === 'steps') {
-      const m = /^\s*\d+\.\s+(.*)$/.exec(line);
-      if (m && m[1].trim()) r.steps.push(m[1].trim());
+      const imgRe = /!\[[^\]]*\]\(\s*(?:\.?\/)?images\/([^)\s]+)\s*\)/;
+      const sm = /^\s*\d+\.\s+(.*)$/.exec(line);
+      if (sm) {
+        let t = sm[1].trim();
+        let img = '';
+        const inl = imgRe.exec(t);
+        if (inl) { img = decodeURIComponent(inl[1]); t = t.replace(inl[0], '').trim(); }
+        if (t || img) r.steps.push({ text: t, image: img });
+      } else {
+        const im = imgRe.exec(line);
+        if (im && r.steps.length) r.steps[r.steps.length - 1].image = decodeURIComponent(im[1]);
+      }
     } else if (section === 'notes') {
       notesBuf.push(line);
     }
@@ -474,12 +489,23 @@ async function handleApi(req, res, url) {
     } else {
       id = Date.now().toString(36) + '-' + slugify(body.title);
     }
+    // steps may be strings (legacy / AI) or objects {text, image?, imageDataUrl?}
+    const steps = [];
+    for (const s of Array.isArray(body.steps) ? body.steps : []) {
+      const text = (typeof s === 'string' ? s : s && s.text ? s.text : '').trim();
+      let stepImg = typeof s === 'string' ? '' : s && s.image ? s.image : '';
+      if (s && typeof s === 'object' && s.imageDataUrl) {
+        const saved = await saveImageDataUrl(s.imageDataUrl);
+        if (saved) stepImg = saved;
+      }
+      if (text || stepImg) steps.push({ text, image: stepImg });
+    }
     const recipe = {
       id,
       title: body.title || '未命名食譜',
       tags: Array.isArray(body.tags) ? body.tags : [],
       ingredients: Array.isArray(body.ingredients) ? body.ingredients.filter((x) => String(x).trim()) : [],
-      steps: Array.isArray(body.steps) ? body.steps.filter((x) => String(x).trim()) : [],
+      steps,
       notes: body.notes || '',
       image,
       createdAt,

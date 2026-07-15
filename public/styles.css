@@ -330,6 +330,29 @@ body {
 .row-item .row-btn.del { color: var(--danger); }
 .add-row-btn { margin-top: 10px; width: 100%; }
 
+/* step image */
+.row-item.step { flex-wrap: wrap; }
+.row-btn.img.has-img { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+.step-thumb-wrap {
+  flex-basis: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  padding-left: 30px;
+}
+.step-thumb {
+  width: 90px;
+  height: 90px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+}
+.step-thumb-del { padding: 6px 11px; font-size: 13px; }
+
+/* category filter bar */
+.filter-bar { margin-bottom: 16px; }
+
 /* tag manager */
 .tagmgr-list { display: flex; flex-direction: column; gap: 8px; }
 .tagmgr-row { display: flex; align-items: center; gap: 6px; }

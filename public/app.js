@@ -29,6 +29,7 @@ let availableTags = [];
 let selectedTags = new Set();
 let editingId = null;
 let pendingImageDataUrl = null; // dataURL, or '__CLEAR__', or null
+let activeFilter = null; // null = 全部, otherwise a tag string
 
 /* ---------- view switching ---------- */
 function switchView(name) {
@@ -75,6 +76,7 @@ async function quickAddTag() {
     selectedTags.add(name);
     $('#f-newtag').value = '';
     renderTagChips();
+    renderFilterBar();
     toast('已新增並選取標籤');
   }
 }
@@ -88,7 +90,7 @@ $('#tagmgr-add').addEventListener('click', tagMgrAdd);
 $('#tagmgr-new').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tagMgrAdd(); } });
 
 function openTagMgr() { renderTagMgr(); $('#tagmgr').classList.remove('hidden'); }
-function closeTagMgr() { $('#tagmgr').classList.add('hidden'); renderTagChips(); }
+function closeTagMgr() { $('#tagmgr').classList.add('hidden'); renderTagChips(); renderFilterBar(); }
 
 async function tagMgrAdd() {
   const name = $('#tagmgr-new').value.trim();
@@ -159,15 +161,41 @@ function renderRows(kind, values) {
 
 function addRow(kind, value) {
   const list = listEl(kind);
+  const isStep = kind === 'step';
+  const text = typeof value === 'string' ? value : value && value.text ? value.text : '';
+  const image = typeof value === 'object' && value ? value.image || '' : '';
+
   const row = document.createElement('div');
-  row.className = 'row-item';
-  const marker = kind === 'step' ? '<span class="row-num"></span>' : '<span class="row-bullet">•</span>';
+  row.className = 'row-item' + (isStep ? ' step' : '');
+  const marker = isStep ? '<span class="row-num"></span>' : '<span class="row-bullet">•</span>';
+  const imgBtn = isStep
+    ? `<label class="row-btn img" title="加圖片">🖼️<input class="row-imgfile" type="file" accept="image/*" hidden /></label>`
+    : '';
   row.innerHTML = `${marker}
-    <input class="row-text" type="text" placeholder="${kind === 'step' ? '這一步做什麼…' : '食材與份量…'}" />
+    <input class="row-text" type="text" placeholder="${isStep ? '這一步做什麼…' : '食材與份量…'}" />
+    ${imgBtn}
     <button type="button" class="row-btn up" title="上移">▲</button>
     <button type="button" class="row-btn down" title="下移">▼</button>
-    <button type="button" class="row-btn del" title="刪除">✕</button>`;
-  $('.row-text', row).value = value || '';
+    <button type="button" class="row-btn del" title="刪除">✕</button>
+    ${isStep ? '<div class="step-thumb-wrap hidden"><img class="step-thumb" alt="步驟圖" /><button type="button" class="btn btn-ghost step-thumb-del">移除圖片</button></div>' : ''}`;
+  $('.row-text', row).value = text;
+
+  if (isStep) {
+    row._image = image; // existing filename
+    row._imageDataUrl = null; // newly picked dataURL
+    updateStepThumb(row);
+    $('.row-imgfile', row).addEventListener('change', (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => { row._imageDataUrl = reader.result; row._image = ''; updateStepThumb(row); };
+      reader.readAsDataURL(file);
+    });
+    $('.step-thumb-del', row).addEventListener('click', () => {
+      row._image = ''; row._imageDataUrl = null; $('.row-imgfile', row).value = ''; updateStepThumb(row);
+    });
+  }
+
   $('.up', row).addEventListener('click', () => {
     const prev = row.previousElementSibling;
     if (prev) { list.insertBefore(row, prev); renumber(kind); }
@@ -181,6 +209,23 @@ function addRow(kind, value) {
   renumber(kind);
 }
 
+function updateStepThumb(row) {
+  const wrap = $('.step-thumb-wrap', row);
+  if (!wrap) return;
+  const img = $('.step-thumb', row);
+  const src = row._imageDataUrl ? row._imageDataUrl : row._image ? '/images/' + encodeURIComponent(row._image) : '';
+  const imgBtn = $('.row-btn.img', row);
+  if (src) {
+    img.src = src;
+    wrap.classList.remove('hidden');
+    if (imgBtn) imgBtn.classList.add('has-img');
+  } else {
+    img.src = '';
+    wrap.classList.add('hidden');
+    if (imgBtn) imgBtn.classList.remove('has-img');
+  }
+}
+
 function renumber(kind) {
   const rows = $$('.row-item', listEl(kind));
   rows.forEach((r, i) => {
@@ -191,7 +236,17 @@ function renumber(kind) {
 }
 
 function collectRows(kind) {
-  return $$('.row-item .row-text', listEl(kind)).map((i) => i.value.trim()).filter(Boolean);
+  if (kind !== 'step') {
+    return $$('.row-item .row-text', listEl(kind)).map((i) => i.value.trim()).filter(Boolean);
+  }
+  return $$('.row-item', listEl('step'))
+    .map((row) => {
+      const text = $('.row-text', row).value.trim();
+      const step = { text, image: row._image || '' };
+      if (row._imageDataUrl) step.imageDataUrl = row._imageDataUrl;
+      return step;
+    })
+    .filter((s) => s.text || s.image || s.imageDataUrl);
 }
 
 $('#f-add-ing').addEventListener('click', () => addRow('ing', ''));
@@ -205,10 +260,28 @@ async function loadRecipes() {
   renderRecipes();
 }
 
+function renderFilterBar() {
+  const bar = $('#filter-bar');
+  // if the active filter tag no longer exists, reset to 全部
+  if (activeFilter && !availableTags.includes(activeFilter)) activeFilter = null;
+  const opts = [{ label: '全部', value: null }].concat(availableTags.map((t) => ({ label: t, value: t })));
+  bar.innerHTML = opts
+    .map((o) => `<button type="button" class="chip filter-chip${o.value === activeFilter ? ' selected' : ''}" data-val="${o.value === null ? '' : esc(o.value)}">${esc(o.label)}</button>`)
+    .join('');
+  $$('.filter-chip', bar).forEach((ch) =>
+    ch.addEventListener('click', () => {
+      activeFilter = ch.dataset.val === '' ? null : ch.dataset.val;
+      renderFilterBar();
+      renderRecipes();
+    })
+  );
+}
+
 function renderRecipes() {
   const q = $('#search').value.trim().toLowerCase();
   const grid = $('#recipe-grid');
   const filtered = recipes.filter((r) => {
+    if (activeFilter && !(r.tags || []).includes(activeFilter)) return false;
     if (!q) return true;
     const hay = (r.title + ' ' + (r.tags || []).join(' ') + ' ' + (r.ingredients || []).join(' ')).toLowerCase();
     return hay.includes(q);
@@ -443,5 +516,6 @@ if ('serviceWorker' in navigator) {
 /* ---------- boot ---------- */
 (async function boot() {
   await loadTags();
+  renderFilterBar();
   await loadRecipes();
 })();
