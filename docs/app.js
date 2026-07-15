@@ -170,7 +170,7 @@ function recipeToMarkdownFE(r) {
   L.push('## 步驟');
   L.push('');
   (r.steps || []).forEach((s, i) => {
-    const text = typeof s === 'string' ? s : s && s.text ? s.text : '';
+    const text = typeof s === 'string' ? s : s && typeof s.text === 'string' ? s.text : '';
     const img = typeof s === 'string' ? '' : s && s.image ? s.image : '';
     L.push(`${i + 1}. ${text}`);
     if (img) L.push(`   ![step](images/${img})`);
@@ -193,7 +193,7 @@ function b64EncodeUtf8(str) {
 function normalizeSteps(steps) {
   const out = [];
   for (const s of steps || []) {
-    const text = (typeof s === 'string' ? s : s && s.text ? s.text : '').trim();
+    const text = (typeof s === 'string' ? s : s && typeof s.text === 'string' ? s.text : '').trim();
     const image = typeof s === 'object' && s ? s.image || '' : '';
     const imageDataUrl = typeof s === 'object' && s ? s.imageDataUrl : undefined;
     out.push({ text, image, imageDataUrl });
@@ -366,12 +366,18 @@ const GitHubStore = {
   },
 
   async saveRecipe(payload) {
+    // Safety net: never write corrupted "[object Object]" content (a stale
+    // client that stringified a step object) — preserve the good data on GitHub.
+    const norm = normalizeSteps(payload.steps);
+    if (norm.some((s) => s.text === '[object Object]') || (payload.ingredients || []).some((x) => String(x) === '[object Object]')) {
+      throw uiError('偵測到損壞的步驟資料（[object Object]），已阻止覆蓋。請重新整理頁面後再試。');
+    }
     // resolve cover image
     let image = payload.image || '';
     if (payload.imageDataUrl) image = await this._uploadImage(payload.imageDataUrl);
     // resolve step images
     const steps = [];
-    for (const s of normalizeSteps(payload.steps)) {
+    for (const s of norm) {
       let img = s.image || '';
       if (s.imageDataUrl) img = await this._uploadImage(s.imageDataUrl);
       if (s.text || img) steps.push({ text: s.text, image: img });
@@ -608,7 +614,7 @@ function renderRows(kind, values) {
 function addRow(kind, value) {
   const list = listEl(kind);
   const isStep = kind === 'step';
-  const text = typeof value === 'string' ? value : value && value.text ? value.text : '';
+  const text = typeof value === 'string' ? value : value && typeof value.text === 'string' ? value.text : '';
   const image = typeof value === 'object' && value ? value.image || '' : '';
 
   const row = document.createElement('div');
@@ -805,7 +811,7 @@ function openReader(id) {
   $('#reader-steps').innerHTML =
     (r.steps || [])
       .map((s) => {
-        const text = typeof s === 'string' ? s : s && s.text ? s.text : '';
+        const text = typeof s === 'string' ? s : s && typeof s.text === 'string' ? s.text : '';
         const image = typeof s === 'object' && s && s.image ? s.image : '';
         const img = image ? `<img class="reader-step-img" src="${displayImageUrl(image)}" alt="步驟圖" />` : '';
         return `<li><div class="reader-step-text">${esc(text)}</div>${img}</li>`;
@@ -1083,6 +1089,14 @@ $('#restore-input').addEventListener('change', async (e) => {
 
 /* ---------- service worker ---------- */
 if ('serviceWorker' in navigator) {
+  // When a new SW takes control (after a version bump), reload once so the
+  // page runs the fresh code — this auto-clears any stale cached bundle.
+  let swRefreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (swRefreshing) return;
+    swRefreshing = true;
+    location.reload();
+  });
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   });

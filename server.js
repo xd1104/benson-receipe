@@ -217,7 +217,7 @@ function recipeToMarkdown(r) {
   fm.push('## 步驟');
   fm.push('');
   (r.steps || []).forEach((s, i) => {
-    const text = typeof s === 'string' ? s : s && s.text ? s.text : '';
+    const text = typeof s === 'string' ? s : s && typeof s.text === 'string' ? s.text : '';
     const img = typeof s === 'string' ? '' : s && s.image ? s.image : '';
     fm.push(`${i + 1}. ${text}`);
     if (img) fm.push(`   ![step](images/${img})`);
@@ -584,7 +584,7 @@ async function handleApi(req, res, url) {
     // steps may be strings (legacy / AI) or objects {text, image?, imageDataUrl?}
     const steps = [];
     for (const s of Array.isArray(body.steps) ? body.steps : []) {
-      const text = (typeof s === 'string' ? s : s && s.text ? s.text : '').trim();
+      const text = (typeof s === 'string' ? s : s && typeof s.text === 'string' ? s.text : '').trim();
       let stepImg = typeof s === 'string' ? '' : s && s.image ? s.image : '';
       if (s && typeof s === 'object' && s.imageDataUrl) {
         const saved = await saveImageDataUrl(s.imageDataUrl);
@@ -592,11 +592,22 @@ async function handleApi(req, res, url) {
       }
       if (text || stepImg) steps.push({ text, image: stepImg });
     }
+    const ingredients = Array.isArray(body.ingredients) ? body.ingredients.filter((x) => String(x).trim()) : [];
+    // Safety net: refuse to persist corrupted "[object Object]" content (from a
+    // stale client that stringified a step object). Prevents overwriting good data.
+    const corrupt = steps.some((s) => s.text === '[object Object]') || ingredients.some((x) => String(x) === '[object Object]');
+    if (corrupt) {
+      return sendJson(res, 422, {
+        ok: false,
+        code: 'corrupt_payload',
+        message: '偵測到損壞的步驟資料（[object Object]），已阻止覆蓋。請重新整理頁面（可能載入到舊版）後再試。',
+      });
+    }
     const recipe = {
       id,
       title: body.title || '未命名食譜',
       tags: Array.isArray(body.tags) ? body.tags : [],
-      ingredients: Array.isArray(body.ingredients) ? body.ingredients.filter((x) => String(x).trim()) : [],
+      ingredients,
       steps,
       notes: body.notes || '',
       image,
