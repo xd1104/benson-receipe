@@ -13,7 +13,7 @@ const http = require('http');
 const fs = require('fs');
 const fsp = require('fs').promises;
 const path = require('path');
-const { spawn, execFileSync } = require('child_process');
+const { spawn, execFile, execFileSync } = require('child_process');
 
 const ROOT = __dirname;
 const PUBLIC_DIR = path.join(ROOT, 'public');
@@ -110,6 +110,63 @@ async function atomicWrite(file, data, encoding) {
   } catch (e) {
     try { await fsp.unlink(tmp); } catch { /* ignore */ }
     throw e;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* auto-sync to GitHub (debounced git add/commit/push)                 */
+/* ------------------------------------------------------------------ */
+const AUTO_SYNC = process.env.AUTO_SYNC !== '0';
+let syncEnabled = false; // set true at startup if an origin remote exists
+let syncTimer = null;
+let syncing = false;
+let syncPending = false;
+
+function gitCmd(args) {
+  return new Promise((resolve, reject) => {
+    execFile('git', args, { cwd: ROOT, windowsHide: true, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) reject(new Error(((stderr || stdout || err.message) + '').slice(0, 400)));
+      else resolve((stdout || '') + '');
+    });
+  });
+}
+
+function scheduleSync() {
+  if (!AUTO_SYNC || !syncEnabled) return;
+  syncPending = true;
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(runSync, 2500); // debounce bursts of saves
+}
+
+async function runSync() {
+  if (syncing) return; // a run is in progress; syncPending will re-trigger
+  syncing = true;
+  syncPending = false;
+  try {
+    await gitCmd(['add', '-A']);
+    // Only commit if there is something staged.
+    const status = await gitCmd(['status', '--porcelain']);
+    if (status.trim()) {
+      await gitCmd(['commit', '-m', 'auto: sync recipe data ' + new Date().toISOString()]);
+    }
+    await gitCmd(['push', 'origin', 'HEAD']);
+    console.log('[sync] pushed to GitHub');
+  } catch (e) {
+    // Never let sync failures affect the user's save; just log.
+    console.error('[sync] failed:', e.message);
+  } finally {
+    syncing = false;
+    if (syncPending) scheduleSync();
+  }
+}
+
+async function initSync() {
+  if (!AUTO_SYNC) { console.log('[sync] disabled (AUTO_SYNC=0)'); return; }
+  try {
+    const url = (await gitCmd(['remote', 'get-url', 'origin'])).trim();
+    if (url) { syncEnabled = true; console.log('[sync] enabled -> ' + url); }
+  } catch {
+    console.log('[sync] no git remote "origin"; auto-push disabled');
   }
 }
 
@@ -526,6 +583,7 @@ async function handleApi(req, res, url) {
       createdAt,
     };
     await atomicWrite(path.join(RECIPES_DIR, id + '.md'), recipeToMarkdown(recipe), 'utf8');
+    scheduleSync();
     return sendJson(res, 200, { ok: true, recipe: markdownToRecipe(id, await fsp.readFile(path.join(RECIPES_DIR, id + '.md'), 'utf8')) });
   }
 
@@ -548,6 +606,7 @@ async function handleApi(req, res, url) {
       } catch {
         /* already gone */
       }
+      scheduleSync();
       return sendJson(res, 200, { ok: true });
     }
   }
@@ -566,6 +625,7 @@ async function handleApi(req, res, url) {
     if (tags.includes(name)) return sendJson(res, 200, { ok: true, tags, note: 'exists' });
     tags.push(name);
     const saved = await writeTags(tags);
+    scheduleSync();
     return sendJson(res, 200, { ok: true, tags: saved });
   }
 
@@ -585,6 +645,7 @@ async function handleApi(req, res, url) {
       for (const t of mapped) if (!uniq.includes(t)) uniq.push(t);
       return uniq;
     });
+    scheduleSync();
     return sendJson(res, 200, { ok: true, tags: saved, recipesUpdated: changed });
   }
 
@@ -596,6 +657,7 @@ async function handleApi(req, res, url) {
     tags = tags.filter((t) => t !== name);
     const saved = await writeTags(tags);
     const changed = await updateRecipesTags((rt) => rt.filter((t) => t !== name));
+    scheduleSync();
     return sendJson(res, 200, { ok: true, tags: saved, recipesUpdated: changed });
   }
 
@@ -701,6 +763,7 @@ async function handleApi(req, res, url) {
       recipeCount++;
     }
     if (Array.isArray(backup.tags)) await writeTags(backup.tags);
+    scheduleSync();
     return sendJson(res, 200, { ok: true, recipeCount, imageCount });
   }
 
@@ -768,4 +831,5 @@ server.listen(PORT, () => {
   console.log('Recipe Book server running at http://localhost:' + PORT);
   console.log('Data dir: ' + DATA_DIR);
   console.log('claude CLI: ' + (exe || 'NOT FOUND (AI organize will report this)'));
+  initSync();
 });

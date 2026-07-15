@@ -2,3 +2,10 @@ node_modules/
 *.log
 .DS_Store
 Thumbs.db
+
+# scratch import files should not sync to GitHub (keep the folder via .gitkeep)
+data/imports/*
+!data/imports/.gitkeep
+
+# atomic-write temp files (should never linger, but never commit them)
+*.tmp~*
