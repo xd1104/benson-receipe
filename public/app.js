@@ -615,7 +615,7 @@ function addRow(kind, value) {
   row.className = 'row-item' + (isStep ? ' step' : '');
   const marker = isStep ? '<span class="row-num"></span>' : '<span class="row-bullet">•</span>';
   const imgBtn = isStep
-    ? `<label class="row-btn img" title="加圖片">🖼️<input class="row-imgfile" type="file" accept="image/*" hidden /></label>`
+    ? `<label class="row-btn img" title="加照片"><span aria-hidden="true">📷</span><input class="row-imgfile" type="file" accept="image/*" hidden /></label>`
     : '';
   row.innerHTML = `${marker}
     <input class="row-text" type="text" placeholder="${isStep ? '這一步做什麼…' : '食材與份量…'}" />
@@ -623,7 +623,7 @@ function addRow(kind, value) {
     <button type="button" class="row-btn up" title="上移">▲</button>
     <button type="button" class="row-btn down" title="下移">▼</button>
     <button type="button" class="row-btn del" title="刪除">✕</button>
-    ${isStep ? '<div class="step-thumb-wrap hidden"><img class="step-thumb" alt="步驟圖" /><button type="button" class="btn btn-ghost step-thumb-del">移除圖片</button></div>' : ''}`;
+    ${isStep ? '<div class="step-thumb-wrap hidden"><div class="step-thumb-box"><img class="step-thumb" alt="步驟圖" /><button type="button" class="step-thumb-del" title="移除照片" aria-label="移除照片">✕</button></div><span class="step-thumb-hint">點 📷 可換照片</span></div>' : ''}`;
   $('.row-text', row).value = text;
 
   if (isStep) {

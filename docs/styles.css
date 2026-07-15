@@ -67,13 +67,16 @@ body {
   margin-bottom: 16px;
   flex-wrap: wrap;
 }
+/* All form controls stay >= 16px so iOS Safari never auto-zooms on focus. */
+input, textarea, select { font-size: 16px; }
+
 .search {
   flex: 1;
   min-width: 160px;
   padding: 11px 14px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  font-size: 15px;
+  font-size: 16px;
   background: var(--surface);
   color: var(--ink);
 }
@@ -210,7 +213,9 @@ body {
 .modal {
   position: fixed;
   inset: 0;
-  background: rgba(30, 20, 12, 0.5);
+  background: rgba(0, 0, 0, 0.7);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -272,7 +277,7 @@ body.scroll-locked {
   padding: 10px 12px;
   border: 1px solid var(--line);
   border-radius: 10px;
-  font-size: 15px;
+  font-size: 16px;
   font-family: inherit;
   background: var(--surface);
   color: var(--ink);
@@ -283,8 +288,16 @@ body.scroll-locked {
   width: 96px;
   height: 96px;
   object-fit: cover;
-  border-radius: 10px;
+  border-radius: 12px;
   border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+/* camera pill for the cover-image picker (matches the step camera button) */
+.img-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
 }
 
 /* tag chips selector */
@@ -307,7 +320,7 @@ body.scroll-locked {
 }
 .chips:empty::before { content: "尚無標籤，可在下方新增"; color: var(--muted); font-size: 13px; }
 .tag-add-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-.tag-add-row input { flex: 1; min-width: 120px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; background: var(--surface); color: var(--ink); }
+.tag-add-row input { flex: 1; min-width: 120px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 16px; background: var(--surface); color: var(--ink); }
 
 /* row-list editor (ingredients / steps) */
 .row-list { display: flex; flex-direction: column; gap: 8px; }
@@ -326,7 +339,7 @@ body.scroll-locked {
   padding: 9px 11px;
   border: 1px solid var(--line);
   border-radius: 9px;
-  font-size: 15px;
+  font-size: 16px;
   background: var(--surface);
   color: var(--ink);
 }
@@ -346,25 +359,61 @@ body.scroll-locked {
 .row-item .row-btn.del { color: var(--danger); }
 .add-row-btn { margin-top: 10px; width: 100%; }
 
-/* step image */
+/* step image — clean camera pill + rounded thumbnail with corner remove badge */
 .row-item.step { flex-wrap: wrap; }
+.row-btn.img {
+  width: auto;
+  padding: 0 11px;
+  gap: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 15px;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+.row-btn.img:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+.row-btn.img:active { transform: scale(0.96); }
 .row-btn.img.has-img { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+
 .step-thumb-wrap {
   flex-basis: 100%;
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 6px;
+  margin-top: 8px;
   padding-left: 30px;
 }
+.step-thumb-box { position: relative; line-height: 0; }
 .step-thumb {
-  width: 90px;
-  height: 90px;
+  width: 96px;
+  height: 96px;
   object-fit: cover;
-  border-radius: 10px;
+  border-radius: 12px;
   border: 1px solid var(--line);
+  box-shadow: var(--shadow);
 }
-.step-thumb-del { padding: 6px 11px; font-size: 13px; }
+.step-thumb-del {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid var(--surface);
+  background: var(--danger);
+  color: #fff;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  box-shadow: var(--shadow);
+}
+.step-thumb-hint { font-size: 13px; color: var(--muted); }
 
 /* settings / key */
 .safety-note {
@@ -456,7 +505,7 @@ body.scroll-locked {
   padding: 9px 11px;
   border: 1px solid var(--line);
   border-radius: 9px;
-  font-size: 15px;
+  font-size: 16px;
   background: var(--surface);
   color: var(--ink);
 }
