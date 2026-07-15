@@ -429,32 +429,34 @@ const GitHubStore = {
     if (!tags.includes(name)) tags.push(name);
     return this._saveTags(tags);
   },
-  async renameTag(from, to) {
+  async renameTag(from, to, onProgress) {
     const tags = (await this.getTags()).map((t) => (t === from ? to : t));
     const saved = await this._saveTags(tags);
-    let recipesUpdated = 0;
-    for (const r of await this.listRecipes()) {
-      if ((r.tags || []).includes(from)) {
-        const uniq = [];
-        for (const t of r.tags.map((t) => (t === from ? to : t))) if (!uniq.includes(t)) uniq.push(t);
-        r.tags = uniq;
-        await this._writeRecipeObject(r);
-        recipesUpdated++;
-      }
+    // only touch recipes that actually use `from`; leave every other tag intact
+    const affected = (await this.listRecipes()).filter((r) => (r.tags || []).includes(from));
+    let done = 0;
+    for (const r of affected) {
+      const uniq = [];
+      for (const t of r.tags.map((t) => (t === from ? to : t))) if (!uniq.includes(t)) uniq.push(t);
+      r.tags = uniq;
+      await this._writeRecipeObject(r);
+      done++;
+      if (onProgress) onProgress(done, affected.length);
     }
-    return { tags: saved, recipesUpdated };
+    return { tags: saved, recipesUpdated: affected.length };
   },
-  async deleteTag(name) {
+  async deleteTag(name, onProgress) {
     const saved = await this._saveTags((await this.getTags()).filter((t) => t !== name));
-    let recipesUpdated = 0;
-    for (const r of await this.listRecipes()) {
-      if ((r.tags || []).includes(name)) {
-        r.tags = r.tags.filter((t) => t !== name);
-        await this._writeRecipeObject(r);
-        recipesUpdated++;
-      }
+    // only recipes using `name`; remove ONLY that tag, keep the rest
+    const affected = (await this.listRecipes()).filter((r) => (r.tags || []).includes(name));
+    let done = 0;
+    for (const r of affected) {
+      r.tags = r.tags.filter((t) => t !== name);
+      await this._writeRecipeObject(r);
+      done++;
+      if (onProgress) onProgress(done, affected.length);
     }
-    return { tags: saved, recipesUpdated };
+    return { tags: saved, recipesUpdated: affected.length };
   },
 };
 
@@ -478,18 +480,33 @@ function switchView(name) {
 }
 $$('.tab').forEach((t) => t.addEventListener('click', () => switchView(t.dataset.view)));
 
-/* ---------- tags ---------- */
+/* ---------- tags ----------
+   baseTags = the palette in tags.json.
+   availableTags = baseTags UNION every tag actually used by a recipe, so
+   "free" tags (used on a recipe but not in tags.json) never disappear from the
+   chips / filter / manager — which is what used to make them get dropped. */
+let baseTags = [];
+function mergeAvailableTags() {
+  const out = baseTags.slice();
+  recipes.forEach((r) => (r.tags || []).forEach((t) => { if (t && !out.includes(t)) out.push(t); }));
+  availableTags = out;
+}
 async function loadTags() {
   try {
-    availableTags = await STORE.getTags();
+    baseTags = await STORE.getTags();
   } catch {
-    availableTags = [];
+    baseTags = [];
   }
+  mergeAvailableTags();
 }
 
 function renderTagChips() {
   const c = $('#f-tags-chips');
-  c.innerHTML = availableTags
+  // always render every currently-selected tag too, even if it isn't in
+  // availableTags — guarantees a recipe's tags never silently vanish on save.
+  const all = availableTags.slice();
+  selectedTags.forEach((t) => { if (!all.includes(t)) all.push(t); });
+  c.innerHTML = all
     .map((t) => `<button type="button" class="chip${selectedTags.has(t) ? ' selected' : ''}" data-tag="${esc(t)}">${esc(t)}</button>`)
     .join('');
   $$('.chip', c).forEach((ch) =>
@@ -509,7 +526,8 @@ async function quickAddTag() {
   const name = $('#f-newtag').value.trim();
   if (!name) return;
   try {
-    availableTags = await STORE.addTag(name);
+    baseTags = await STORE.addTag(name);
+    mergeAvailableTags();
     selectedTags.add(name);
     $('#f-newtag').value = '';
     renderTagChips();
@@ -531,13 +549,24 @@ $('#tagmgr-new').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e
 function openTagMgr() { renderTagMgr(); $('#tagmgr').classList.remove('hidden'); }
 function closeTagMgr() { $('#tagmgr').classList.add('hidden'); renderTagChips(); renderFilterBar(); }
 
+// on a background cascade failure, re-sync from source so UI matches reality
+async function resyncAfterTagError() {
+  await loadTags();
+  await loadRecipes();
+  renderFilterBar();
+  renderTagChips();
+  if (!$('#tagmgr').classList.contains('hidden')) renderTagMgr();
+}
+
 async function tagMgrAdd() {
   const name = $('#tagmgr-new').value.trim();
   if (!name) return;
   try {
-    availableTags = await STORE.addTag(name);
+    baseTags = await STORE.addTag(name);
+    mergeAvailableTags();
     $('#tagmgr-new').value = '';
     renderTagMgr();
+    renderFilterBar();
     toast('已新增標籤');
   } catch (e) {
     toast('新增標籤失敗：' + (e.userMessage || e.message || ''));
@@ -564,38 +593,38 @@ function renderTagMgr() {
     $('.tm-rename', row).addEventListener('click', async () => {
       const to = $('.tm-input', row).value.trim();
       if (!to || to === orig) return;
-      const btn = $('.tm-rename', row);
-      btn.disabled = true;
+      const affected = recipes.filter((r) => (r.tags || []).includes(orig)).length;
+      // optimistic: reflect the rename instantly (no waiting for the cascade)
+      baseTags = baseTags.map((t) => (t === orig ? to : t)).filter((t, i, a) => a.indexOf(t) === i);
+      if (selectedTags.has(orig)) { selectedTags.delete(orig); selectedTags.add(to); }
+      applyTagRenameLocal(orig, to);
+      mergeAvailableTags();
+      renderRecipes(); renderFilterBar(); renderTagChips(); renderTagMgr();
+      toast(affected ? '改名中…（' + affected + ' 道食譜）' : '已改名');
       try {
-        const data = await STORE.renameTag(orig, to);
-        availableTags = data.tags;
-        if (selectedTags.has(orig)) { selectedTags.delete(orig); selectedTags.add(to); }
-        applyTagRenameLocal(orig, to); // optimistic
-        renderRecipes();
-        renderFilterBar();
-        renderTagMgr();
-        toast('已改名，更新 ' + data.recipesUpdated + ' 道食譜');
+        await STORE.renameTag(orig, to, (d, t) => { if (t > 1) toast('更新中 ' + d + '/' + t + '…'); });
+        if (affected) toast('已同步改名（' + affected + ' 道食譜）');
       } catch (e) {
-        btn.disabled = false;
-        toast('改名失敗：' + (e.userMessage || e.message || ''));
+        toast('改名同步未完成：' + (e.userMessage || e.message || '') + '，重新整理中');
+        await resyncAfterTagError();
       }
     });
     $('.tm-del', row).addEventListener('click', async () => {
-      if (!confirm('刪除標籤「' + orig + '」？用到它的食譜會一併移除此標籤。')) return;
-      const btn = $('.tm-del', row);
-      btn.disabled = true;
+      if (!confirm('刪除標籤「' + orig + '」？用到它的食譜會一併移除此標籤（其他標籤不受影響）。')) return;
+      const affected = recipes.filter((r) => (r.tags || []).includes(orig)).length;
+      // optimistic: remove instantly, cascade in the background
+      baseTags = baseTags.filter((t) => t !== orig);
+      selectedTags.delete(orig);
+      applyTagDeleteLocal(orig);
+      mergeAvailableTags();
+      renderRecipes(); renderFilterBar(); renderTagChips(); renderTagMgr();
+      toast(affected ? '刪除中…（' + affected + ' 道食譜）' : '已刪除標籤');
       try {
-        const data = await STORE.deleteTag(orig);
-        availableTags = data.tags;
-        selectedTags.delete(orig);
-        applyTagDeleteLocal(orig); // optimistic
-        renderRecipes();
-        renderFilterBar();
-        renderTagMgr();
-        toast('已刪除，更新 ' + data.recipesUpdated + ' 道食譜');
+        await STORE.deleteTag(orig, (d, t) => { if (t > 1) toast('更新中 ' + d + '/' + t + '…'); });
+        if (affected) toast('已同步刪除（' + affected + ' 道食譜）');
       } catch (e) {
-        btn.disabled = false;
-        toast('刪除失敗：' + (e.userMessage || e.message || ''));
+        toast('刪除同步未完成：' + (e.userMessage || e.message || '') + '，重新整理中');
+        await resyncAfterTagError();
       }
     });
   });
@@ -716,9 +745,10 @@ async function loadRecipes() {
   try {
     recipes = await STORE.listRecipes();
   } catch (e) {
-    toast('讀取食譜失敗' + (STORE.readonly ? '（GitHub 讀取問題）' : ''));
+    toast('讀取食譜失敗' + (STORE.local ? '' : '（GitHub 讀取問題）'));
     recipes = recipes || [];
   }
+  mergeAvailableTags(); // keep free tags (used on recipes) in the tag list
   renderRecipes();
 }
 
@@ -1200,8 +1230,8 @@ $('#btn-refresh') && $('#btn-refresh').addEventListener('click', async () => {
   btn.textContent = '更新中…';
   try {
     await loadTags();
-    renderFilterBar();
     await loadRecipes();
+    renderFilterBar();
     toast('已更新');
   } finally {
     btn.disabled = false;
@@ -1233,6 +1263,6 @@ $$('.modal').forEach((m) => new MutationObserver(refreshScrollLock).observe(m, {
   applyModeUI();
   updateViewToggleUI();
   await loadTags();
-  renderFilterBar();
   await loadRecipes();
+  renderFilterBar();
 })();
