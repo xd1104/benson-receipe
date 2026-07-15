@@ -1,8 +1,8 @@
 ---
 title: "黃金炒飯"
-tags: ["炒飯"]
+tags: []
 createdAt: "2026-07-15T05:36:27.101Z"
-updatedAt: "2026-07-15T07:00:29.211Z"
+updatedAt: "2026-07-15T07:00:43.069Z"
 image: ""
 ---
 
