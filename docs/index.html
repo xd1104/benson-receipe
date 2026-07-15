@@ -36,6 +36,10 @@
       </div>
       <p id="readonly-note" class="readonly-note hidden">📖 唯讀瀏覽模式（資料來自 GitHub）。新增或編輯食譜請在電腦上操作。</p>
       <div id="filter-bar" class="chips filter-bar"></div>
+      <div id="load-status" class="load-status hidden">
+        <span class="spinner" aria-hidden="true"></span>
+        <span id="load-text" class="load-text">載入食譜中…</span>
+      </div>
       <div id="recipe-grid" class="grid"></div>
       <p id="empty-hint" class="empty-hint hidden">還沒有食譜，按「＋ 新增食譜」開始，或到「匯入整理」批次匯入。</p>
     </section>
@@ -154,6 +158,22 @@
             <li>Generate → 複製那串 <code>github_pat_...</code> → 回到這裡貼上、儲存。</li>
           </ol>
         </details>
+      </div>
+    </div>
+  </div>
+
+  <!-- GENERIC CONFIRM / PROMPT DIALOG -->
+  <div id="dialog" class="modal dialog-modal hidden">
+    <div class="modal-card dialog-card">
+      <div class="dialog-body">
+        <h2 id="dialog-title" class="dialog-title"></h2>
+        <p id="dialog-message" class="dialog-message"></p>
+        <input id="dialog-input" class="dialog-input hidden" type="text" />
+      </div>
+      <div class="modal-foot">
+        <div class="spacer"></div>
+        <button id="dialog-cancel" class="btn btn-ghost" type="button">取消</button>
+        <button id="dialog-confirm" class="btn btn-primary" type="button">確定</button>
       </div>
     </div>
   </div>

@@ -439,6 +439,45 @@ body.scroll-locked {
   margin: 0 0 14px;
 }
 
+/* loading indicator */
+.load-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px 12px;
+  color: var(--primary);
+  font-size: 15px;
+  font-weight: 600;
+}
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 3px solid var(--primary-soft);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* generic dialog (confirm / prompt) — high contrast, centered */
+.dialog-modal { align-items: center; padding: 20px; }
+.dialog-card { max-width: 400px; border-radius: 18px; }
+.dialog-body { padding: 22px 20px 6px; }
+.dialog-title { margin: 0 0 8px; font-size: 18px; font-weight: 700; color: var(--ink); }
+.dialog-message { margin: 0; font-size: 15px; line-height: 1.6; color: var(--ink); }
+.dialog-input {
+  width: 100%;
+  margin-top: 14px;
+  padding: 11px 13px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font-size: 16px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
 /* view toggle (segmented card / list) */
 .view-toggle {
   display: inline-flex;
@@ -572,17 +611,17 @@ body.scroll-locked {
 /* tag manager */
 .tagmgr-list { display: flex; flex-direction: column; gap: 8px; }
 .tagmgr-row { display: flex; align-items: center; gap: 6px; }
-.tagmgr-row input {
+.tagmgr-row .tm-name {
   flex: 1;
   min-width: 0;
-  padding: 9px 11px;
-  border: 1px solid var(--line);
-  border-radius: 9px;
   font-size: 16px;
-  background: var(--surface);
   color: var(--ink);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.tagmgr-row .btn { padding: 8px 12px; font-size: 14px; }
+.tagmgr-row .btn { padding: 8px 12px; font-size: 14px; flex: none; }
 
 .hidden { display: none !important; }
 

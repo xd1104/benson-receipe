@@ -16,6 +16,44 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+/* ---------- custom dialog (replaces native confirm/prompt) ---------- */
+function openDialog(opts) {
+  opts = opts || {};
+  const withInput = !!opts.withInput;
+  return new Promise((resolve) => {
+    const dlg = $('#dialog');
+    $('#dialog-title').textContent = opts.title || '';
+    const msg = $('#dialog-message');
+    msg.textContent = opts.message || '';
+    msg.classList.toggle('hidden', !opts.message);
+    const input = $('#dialog-input');
+    input.classList.toggle('hidden', !withInput);
+    input.value = withInput ? (opts.value || '') : '';
+    const confirmBtn = $('#dialog-confirm');
+    const cancelBtn = $('#dialog-cancel');
+    confirmBtn.textContent = opts.confirmText || '確定';
+    confirmBtn.className = 'btn ' + (opts.danger ? 'btn-danger' : 'btn-primary');
+    cancelBtn.textContent = opts.cancelText || '取消';
+    dlg.classList.remove('hidden');
+    if (withInput) setTimeout(() => { input.focus(); input.select(); }, 60);
+
+    function cleanup(result) {
+      dlg.classList.add('hidden');
+      confirmBtn.onclick = null;
+      cancelBtn.onclick = null;
+      dlg.onclick = null;
+      input.onkeydown = null;
+      resolve(result);
+    }
+    confirmBtn.onclick = () => cleanup(withInput ? input.value : true);
+    cancelBtn.onclick = () => cleanup(withInput ? null : false);
+    dlg.onclick = (e) => { if (e.target.id === 'dialog') cleanup(withInput ? null : false); };
+    input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); cleanup(input.value); } };
+  });
+}
+function confirmDialog(opts) { return openDialog(Object.assign({ withInput: false }, opts)); }
+function promptDialog(opts) { return openDialog(Object.assign({ withInput: true }, opts)); }
+
 async function api(path, opts) {
   let res;
   try {
@@ -219,7 +257,14 @@ function clearToken() { try { localStorage.removeItem(TOKEN_KEY); } catch {} }
 const LocalStore = {
   local: true,
   canWrite() { return true; },
-  async listRecipes() { const { data } = await api('api/recipes'); return (data && data.recipes) || []; },
+  async listRecipes(cb) {
+    cb = cb || {};
+    const { data } = await api('api/recipes');
+    const list = (data && data.recipes) || [];
+    if (cb.onTotal) cb.onTotal(list.length);
+    if (cb.onItem) list.forEach(cb.onItem); // instant on localhost
+    return list;
+  },
   async getTags() { const { data } = await api('api/tags'); return (data && data.tags) || []; },
   imageUrl(f) { return 'images/' + encodeURIComponent(f); },
   async saveRecipe(payload) {
@@ -257,29 +302,35 @@ const GitHubStore = {
   canWrite() { return !!getToken(); },
   imageUrl(f) { return this.rawBase + '/data/images/' + encodeURIComponent(f); },
 
-  async listRecipes() {
+  async listRecipes(cb) {
+    cb = cb || {};
     const hasKey = this.canWrite();
     // listing itself: authenticated when we have a key (fresher, higher rate limit)
     const res = await this._ghFetch(this.apiBase + '/contents/data/recipes?ref=' + GH.branch, {}, hasKey);
     const files = await res.json();
     const mds = (Array.isArray(files) ? files : []).filter((f) => f.name.endsWith('.md'));
+    if (cb.onTotal) cb.onTotal(mds.length);
+    // Fetch every recipe's content IN PARALLEL (was sequential -> slow), and
+    // stream each parsed recipe to the caller as it arrives for progressive render.
     const out = [];
-    for (const f of mds) {
-      try {
-        let txt;
-        if (hasKey) {
-          // fresh content via Contents API (bypasses the raw CDN cache)
-          const r = await this._ghFetch(f.url, {}, true);
-          const j = await r.json();
-          txt = j.content ? new TextDecoder().decode(Uint8Array.from(atob(j.content.replace(/\n/g, '')), (c) => c.charCodeAt(0))) : '';
-        } else {
-          // anonymous: raw CDN + cache-buster keyed on the blob sha so edits show promptly
-          const bust = (f.download_url.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(f.sha);
-          txt = await fetch(f.download_url + bust).then((r) => r.text());
-        }
-        out.push(parseRecipeMarkdown(f.name.replace(/\.md$/, ''), txt));
-      } catch { /* skip one bad file */ }
-    }
+    await Promise.all(
+      mds.map(async (f) => {
+        try {
+          let txt;
+          if (hasKey) {
+            const r = await this._ghFetch(f.url, {}, true);
+            const j = await r.json();
+            txt = j.content ? new TextDecoder().decode(Uint8Array.from(atob(j.content.replace(/\n/g, '')), (c) => c.charCodeAt(0))) : '';
+          } else {
+            const bust = (f.download_url.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(f.sha);
+            txt = await fetch(f.download_url + bust).then((r) => r.text());
+          }
+          const recipe = parseRecipeMarkdown(f.name.replace(/\.md$/, ''), txt);
+          out.push(recipe);
+          if (cb.onItem) cb.onItem(recipe);
+        } catch { /* skip one bad file */ }
+      })
+    );
     out.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
     return out;
   },
@@ -582,7 +633,7 @@ function renderTagMgr() {
   list.innerHTML = availableTags
     .map(
       (t) => `<div class="tagmgr-row" data-tag="${esc(t)}">
-        <input class="tm-input" type="text" value="${esc(t)}" />
+        <span class="tm-name">${esc(t)}</span>
         <button class="btn btn-ghost tm-rename" type="button">改名</button>
         <button class="btn btn-danger tm-del" type="button">刪除</button>
       </div>`
@@ -591,8 +642,11 @@ function renderTagMgr() {
   $$('.tagmgr-row', list).forEach((row) => {
     const orig = row.dataset.tag;
     $('.tm-rename', row).addEventListener('click', async () => {
-      const to = $('.tm-input', row).value.trim();
-      if (!to || to === orig) return;
+      const raw = await promptDialog({ title: '改名標籤', message: '把「' + orig + '」改成新名稱：', value: orig, confirmText: '改名' });
+      if (raw == null) return; // cancelled
+      const to = raw.trim();
+      if (!to) { toast('名稱不可空白'); return; }
+      if (to === orig) return;
       const affected = recipes.filter((r) => (r.tags || []).includes(orig)).length;
       // optimistic: reflect the rename instantly (no waiting for the cascade)
       baseTags = baseTags.map((t) => (t === orig ? to : t)).filter((t, i, a) => a.indexOf(t) === i);
@@ -610,7 +664,8 @@ function renderTagMgr() {
       }
     });
     $('.tm-del', row).addEventListener('click', async () => {
-      if (!confirm('刪除標籤「' + orig + '」？用到它的食譜會一併移除此標籤（其他標籤不受影響）。')) return;
+      const ok = await confirmDialog({ title: '刪除標籤', message: '刪除標籤「' + orig + '」？用到它的食譜會一併移除此標籤（其他標籤不受影響）。', confirmText: '刪除', danger: true });
+      if (!ok) return;
       const affected = recipes.filter((r) => (r.tags || []).includes(orig)).length;
       // optimistic: remove instantly, cascade in the background
       baseTags = baseTags.filter((t) => t !== orig);
@@ -741,13 +796,42 @@ $('#f-add-ing').addEventListener('click', () => addRow('ing', ''));
 $('#f-add-step').addEventListener('click', () => addRow('step', ''));
 
 /* ---------- recipe list ---------- */
+function setLoader(shown, done, total) {
+  const el = $('#load-status');
+  if (!el) return;
+  el.classList.toggle('hidden', !shown);
+  if (shown) {
+    const txt = $('#load-text');
+    if (txt) txt.textContent = total ? '載入食譜中… ' + done + '/' + total : '載入食譜中…';
+  }
+}
+
 async function loadRecipes() {
+  const firstLoad = !recipes.length;
+  if (firstLoad) setLoader(true, 0, 0); // only show the spinner when the grid is empty
+  const acc = [];
+  let total = 0;
   try {
-    recipes = await STORE.listRecipes();
+    const full = await STORE.listRecipes({
+      onTotal: (n) => { total = n; if (firstLoad) setLoader(true, 0, n); },
+      onItem: (r) => {
+        acc.push(r);
+        if (firstLoad) {
+          // progressive render: show recipes one-by-one as they arrive
+          acc.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+          recipes = acc.slice();
+          mergeAvailableTags();
+          renderRecipes();
+          setLoader(true, acc.length, total);
+        }
+      },
+    });
+    recipes = full; // authoritative sorted list
   } catch (e) {
     toast('讀取食譜失敗' + (STORE.local ? '' : '（GitHub 讀取問題）'));
-    recipes = recipes || [];
+    recipes = recipes.length ? recipes : acc;
   }
+  setLoader(false);
   mergeAvailableTags(); // keep free tags (used on recipes) in the tag list
   renderRecipes();
 }
@@ -1007,7 +1091,8 @@ $('#editor-save').addEventListener('click', async () => {
 
 $('#editor-delete').addEventListener('click', async () => {
   if (!editingId) return;
-  if (!confirm('確定刪除這道食譜？')) return;
+  const ok = await confirmDialog({ title: '刪除食譜', message: '確定刪除這道食譜？此動作無法復原。', confirmText: '刪除', danger: true });
+  if (!ok) return;
   const id = editingId;
   try {
     await STORE.deleteRecipe(id);
@@ -1126,7 +1211,8 @@ $('#btn-export').addEventListener('click', () => {
 $('#restore-input').addEventListener('change', async (e) => {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
-  if (!confirm('還原會用備份內容覆蓋同名食譜與圖片，確定要繼續？')) { e.target.value = ''; return; }
+  const confirmed = await confirmDialog({ title: '還原備份', message: '還原會用備份內容覆蓋同名食譜與圖片，確定要繼續？', confirmText: '還原', danger: true });
+  if (!confirmed) { e.target.value = ''; return; }
   let backup;
   try {
     backup = JSON.parse(await file.text());
