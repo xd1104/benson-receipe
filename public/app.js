@@ -141,20 +141,114 @@ function parseRecipeMarkdown(id, text) {
   return r;
 }
 
+/* --- shared serialization (mirror of server) --- */
+function slugify(str) {
+  const base = String(str || '').trim().toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+  return base || 'recipe';
+}
+function fmValue(v) {
+  if (Array.isArray(v)) return '[' + v.map((x) => JSON.stringify(String(x))).join(', ') + ']';
+  return JSON.stringify(String(v == null ? '' : v));
+}
+function recipeToMarkdownFE(r) {
+  const L = [];
+  L.push('---');
+  L.push('title: ' + fmValue(r.title || ''));
+  L.push('tags: ' + fmValue(r.tags || []));
+  L.push('createdAt: ' + fmValue(r.createdAt || new Date().toISOString()));
+  L.push('updatedAt: ' + fmValue(new Date().toISOString()));
+  L.push('image: ' + fmValue(r.image || ''));
+  L.push('---');
+  L.push('');
+  L.push('# ' + (r.title || '未命名食譜'));
+  L.push('');
+  L.push('## 食材');
+  L.push('');
+  for (const ing of r.ingredients || []) L.push('- ' + ing);
+  L.push('');
+  L.push('## 步驟');
+  L.push('');
+  (r.steps || []).forEach((s, i) => {
+    const text = typeof s === 'string' ? s : s && s.text ? s.text : '';
+    const img = typeof s === 'string' ? '' : s && s.image ? s.image : '';
+    L.push(`${i + 1}. ${text}`);
+    if (img) L.push(`   ![step](images/${img})`);
+  });
+  L.push('');
+  if (r.notes && String(r.notes).trim()) {
+    L.push('## 備註');
+    L.push('');
+    L.push(String(r.notes).trim());
+    L.push('');
+  }
+  return L.join('\n');
+}
+function b64EncodeUtf8(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+function normalizeSteps(steps) {
+  const out = [];
+  for (const s of steps || []) {
+    const text = (typeof s === 'string' ? s : s && s.text ? s.text : '').trim();
+    const image = typeof s === 'object' && s ? s.image || '' : '';
+    const imageDataUrl = typeof s === 'object' && s ? s.imageDataUrl : undefined;
+    out.push({ text, image, imageDataUrl });
+  }
+  return out;
+}
+
+/* --- GitHub PAT (shared key), stored only in this browser --- */
+const TOKEN_KEY = 'recipe_gh_pat';
+function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; } }
+function setToken(t) { try { localStorage.setItem(TOKEN_KEY, t); } catch {} }
+function clearToken() { try { localStorage.removeItem(TOKEN_KEY); } catch {} }
+
 const LocalStore = {
-  readonly: false,
+  local: true,
+  canWrite() { return true; },
   async listRecipes() { const { data } = await api('api/recipes'); return (data && data.recipes) || []; },
   async getTags() { const { data } = await api('api/tags'); return (data && data.tags) || []; },
   imageUrl(f) { return 'images/' + encodeURIComponent(f); },
+  async saveRecipe(payload) {
+    const { ok, data } = await api('api/recipes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    if (!ok || !data || !data.ok) throw uiError((data && data.message) || '儲存失敗');
+    return data.recipe;
+  },
+  async deleteRecipe(id) {
+    const { ok } = await api('api/recipes/' + encodeURIComponent(id), { method: 'DELETE' });
+    if (!ok) throw uiError('刪除失敗');
+  },
+  async addTag(name) {
+    const { ok, data } = await api('api/tags', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+    if (!ok || !data || !data.ok) throw uiError((data && data.message) || '新增標籤失敗');
+    return data.tags;
+  },
+  async renameTag(from, to) {
+    const { ok, data } = await api('api/tags', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from, to }) });
+    if (!ok || !data || !data.ok) throw uiError((data && data.message) || '改名失敗');
+    return data;
+  },
+  async deleteTag(name) {
+    const { ok, data } = await api('api/tags/' + encodeURIComponent(name), { method: 'DELETE' });
+    if (!ok || !data || !data.ok) throw uiError('刪除標籤失敗');
+    return data;
+  },
 };
 
+function uiError(message) { const e = new Error(message); e.userMessage = message; return e; }
+
 const GitHubStore = {
-  readonly: true,
+  local: false,
   rawBase: `https://raw.githubusercontent.com/${GH.owner}/${GH.repo}/${GH.branch}`,
+  apiBase: `https://api.github.com/repos/${GH.owner}/${GH.repo}`,
+  canWrite() { return !!getToken(); },
+  imageUrl(f) { return this.rawBase + '/data/images/' + encodeURIComponent(f); },
+
   async listRecipes() {
-    const url = `https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/data/recipes?ref=${GH.branch}`;
-    const res = await fetch(url, { headers: { Accept: 'application/vnd.github+json' } });
-    if (!res.ok) throw new Error('GitHub API ' + res.status);
+    const res = await this._ghFetch(this.apiBase + '/contents/data/recipes?ref=' + GH.branch, {}, false);
     const files = await res.json();
     const mds = (Array.isArray(files) ? files : []).filter((f) => f.name.endsWith('.md'));
     const out = [];
@@ -168,15 +262,174 @@ const GitHubStore = {
     return out;
   },
   async getTags() {
+    // prefer the API (fresh) when authenticated, else raw CDN
     try {
-      const r = await fetch(this.rawBase + '/data/tags.json');
-      if (r.ok) { const a = await r.json(); if (Array.isArray(a)) return a; }
+      if (this.canWrite()) {
+        const f = await this._getFile('data/tags.json');
+        if (f) { const a = JSON.parse(f.text); if (Array.isArray(a)) return a; }
+      } else {
+        const r = await fetch(this.rawBase + '/data/tags.json');
+        if (r.ok) { const a = await r.json(); if (Array.isArray(a)) return a; }
+      }
     } catch { /* ignore */ }
     return [];
   },
-  imageUrl(f) { return this.rawBase + '/data/images/' + encodeURIComponent(f); },
+
+  /* ---- write helpers (Contents API) ---- */
+  _ghFetch(url, opts, needAuth) {
+    const headers = Object.assign({ Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28' }, (opts && opts.headers) || {});
+    if (needAuth) {
+      const token = getToken();
+      if (!token) return Promise.reject(uiError('尚未設定 GitHub 金鑰。'));
+      headers.Authorization = 'token ' + token;
+    }
+    return fetch(url, Object.assign({}, opts, { headers })).then((res) => {
+      if (res.ok) return res;
+      return res.json().catch(() => ({})).then((body) => {
+        const err = uiError(this._msgForStatus(res.status, body));
+        err.status = res.status;
+        throw err;
+      });
+    }, () => { throw uiError('目前離線或連不到 GitHub。'); });
+  },
+  _msgForStatus(status, body) {
+    if (status === 401) return 'GitHub 金鑰無效或已過期，請到「設定」重新貼上金鑰。';
+    if (status === 403) return 'GitHub 金鑰權限不足：需 fine-grained PAT，授權此 repo，Contents 設為 Read and write。';
+    if (status === 404) return '找不到資源（可能路徑錯或金鑰未授權此 repo）。';
+    if (status === 409) return '資料版本衝突（有其他人剛改過），請重試。';
+    if (status === 422) return 'GitHub 拒絕此次寫入（' + ((body && body.message) || '格式問題') + '）。';
+    return 'GitHub 錯誤 ' + status + '：' + ((body && body.message) || '');
+  },
+  async _getFile(pathRel) {
+    // returns {sha, text} or null (404)
+    try {
+      const res = await this._ghFetch(this.apiBase + '/contents/' + pathRel + '?ref=' + GH.branch, {}, this.canWrite());
+      const j = await res.json();
+      const text = j.content ? new TextDecoder().decode(Uint8Array.from(atob(j.content.replace(/\n/g, '')), (c) => c.charCodeAt(0))) : '';
+      return { sha: j.sha, text };
+    } catch (e) {
+      if (e.status === 404) return null;
+      throw e;
+    }
+  },
+  async _putFile(pathRel, contentB64, message, sha) {
+    const body = { message, content: contentB64, branch: GH.branch };
+    if (sha) body.sha = sha;
+    try {
+      const res = await this._ghFetch(this.apiBase + '/contents/' + pathRel, { method: 'PUT', body: JSON.stringify(body) }, true);
+      return res.json();
+    } catch (e) {
+      if (e.status === 409) {
+        // sha went stale — refetch latest sha and retry once (last-write-wins)
+        const cur = await this._getFile(pathRel);
+        body.sha = cur ? cur.sha : undefined;
+        const res2 = await this._ghFetch(this.apiBase + '/contents/' + pathRel, { method: 'PUT', body: JSON.stringify(body) }, true);
+        return res2.json();
+      }
+      throw e;
+    }
+  },
+  async _deleteFile(pathRel, sha, message) {
+    const body = JSON.stringify({ message, sha, branch: GH.branch });
+    await this._ghFetch(this.apiBase + '/contents/' + pathRel, { method: 'DELETE', body }, true);
+  },
+  async _uploadImage(dataUrl) {
+    const m = /^data:(image\/(png|jpe?g|gif|webp));base64,(.+)$/i.exec(dataUrl || '');
+    if (!m) throw uiError('圖片格式不支援。');
+    const ext = m[2].toLowerCase() === 'jpeg' ? 'jpg' : m[2].toLowerCase();
+    const name = Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.' + ext;
+    await this._putFile('data/images/' + name, m[3], 'mobile: upload image ' + name, null);
+    return name;
+  },
+
+  async saveRecipe(payload) {
+    // resolve cover image
+    let image = payload.image || '';
+    if (payload.imageDataUrl) image = await this._uploadImage(payload.imageDataUrl);
+    // resolve step images
+    const steps = [];
+    for (const s of normalizeSteps(payload.steps)) {
+      let img = s.image || '';
+      if (s.imageDataUrl) img = await this._uploadImage(s.imageDataUrl);
+      if (s.text || img) steps.push({ text: s.text, image: img });
+    }
+    // id + createdAt + existing sha
+    let id = payload.id || '';
+    let createdAt = new Date().toISOString();
+    let sha = null;
+    if (id) {
+      const existing = await this._getFile('data/recipes/' + id + '.md');
+      if (existing) { sha = existing.sha; const parsed = parseRecipeMarkdown(id, existing.text); if (parsed.createdAt) createdAt = parsed.createdAt; }
+    } else {
+      id = Date.now().toString(36) + '-' + slugify(payload.title);
+    }
+    const recipe = {
+      id,
+      title: payload.title || '未命名食譜',
+      tags: Array.isArray(payload.tags) ? payload.tags : [],
+      ingredients: (payload.ingredients || []).filter((x) => String(x).trim()),
+      steps,
+      notes: payload.notes || '',
+      image,
+      createdAt,
+    };
+    const md = recipeToMarkdownFE(recipe);
+    if (GH_DEBUG) console.log('[GitHubStore] PUT data/recipes/' + id + '.md', { hasSha: !!sha, bytes: md.length, steps: steps.length });
+    await this._putFile('data/recipes/' + id + '.md', b64EncodeUtf8(md), 'mobile: save ' + recipe.title, sha);
+    return recipe;
+  },
+  async deleteRecipe(id) {
+    const f = await this._getFile('data/recipes/' + id + '.md');
+    if (f) await this._deleteFile('data/recipes/' + id + '.md', f.sha, 'mobile: delete ' + id);
+  },
+  async _saveTags(list) {
+    const clean = [];
+    for (const t of list) { const s = String(t).trim(); if (s && !clean.includes(s)) clean.push(s); }
+    const f = await this._getFile('data/tags.json');
+    await this._putFile('data/tags.json', b64EncodeUtf8(JSON.stringify(clean, null, 2)), 'mobile: update tags', f ? f.sha : null);
+    return clean;
+  },
+  async _writeRecipeObject(r) {
+    // re-serialize a full recipe object and PUT (fetch fresh sha by id)
+    const existing = await this._getFile('data/recipes/' + r.id + '.md');
+    const md = recipeToMarkdownFE(r);
+    await this._putFile('data/recipes/' + r.id + '.md', b64EncodeUtf8(md), 'mobile: update tags on ' + r.title, existing ? existing.sha : null);
+  },
+  async addTag(name) {
+    const tags = await this.getTags();
+    if (!tags.includes(name)) tags.push(name);
+    return this._saveTags(tags);
+  },
+  async renameTag(from, to) {
+    const tags = (await this.getTags()).map((t) => (t === from ? to : t));
+    const saved = await this._saveTags(tags);
+    let recipesUpdated = 0;
+    for (const r of await this.listRecipes()) {
+      if ((r.tags || []).includes(from)) {
+        const uniq = [];
+        for (const t of r.tags.map((t) => (t === from ? to : t))) if (!uniq.includes(t)) uniq.push(t);
+        r.tags = uniq;
+        await this._writeRecipeObject(r);
+        recipesUpdated++;
+      }
+    }
+    return { tags: saved, recipesUpdated };
+  },
+  async deleteTag(name) {
+    const saved = await this._saveTags((await this.getTags()).filter((t) => t !== name));
+    let recipesUpdated = 0;
+    for (const r of await this.listRecipes()) {
+      if ((r.tags || []).includes(name)) {
+        r.tags = r.tags.filter((t) => t !== name);
+        await this._writeRecipeObject(r);
+        recipesUpdated++;
+      }
+    }
+    return { tags: saved, recipesUpdated };
+  },
 };
 
+const GH_DEBUG = /[?&]ghdebug\b/.test(location.search);
 const STORE = IS_LOCAL && !FORCE_GH ? LocalStore : GitHubStore;
 
 /* ---------- state ---------- */
@@ -225,18 +478,15 @@ $('#f-newtag').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.p
 async function quickAddTag() {
   const name = $('#f-newtag').value.trim();
   if (!name) return;
-  const { ok, data } = await api('api/tags', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
-  });
-  if (ok && data.ok) {
-    availableTags = data.tags;
+  try {
+    availableTags = await STORE.addTag(name);
     selectedTags.add(name);
     $('#f-newtag').value = '';
     renderTagChips();
     renderFilterBar();
     toast('已新增並選取標籤');
+  } catch (e) {
+    toast('新增標籤失敗：' + (e.userMessage || e.message || ''));
   }
 }
 
@@ -254,10 +504,14 @@ function closeTagMgr() { $('#tagmgr').classList.add('hidden'); renderTagChips();
 async function tagMgrAdd() {
   const name = $('#tagmgr-new').value.trim();
   if (!name) return;
-  const { ok, data } = await api('api/tags', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
-  });
-  if (ok && data.ok) { availableTags = data.tags; $('#tagmgr-new').value = ''; renderTagMgr(); toast('已新增標籤'); }
+  try {
+    availableTags = await STORE.addTag(name);
+    $('#tagmgr-new').value = '';
+    renderTagMgr();
+    toast('已新增標籤');
+  } catch (e) {
+    toast('新增標籤失敗：' + (e.userMessage || e.message || ''));
+  }
 }
 
 function renderTagMgr() {
@@ -280,28 +534,34 @@ function renderTagMgr() {
     $('.tm-rename', row).addEventListener('click', async () => {
       const to = $('.tm-input', row).value.trim();
       if (!to || to === orig) return;
-      const { ok, data } = await api('api/tags', {
-        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ from: orig, to }),
-      });
-      if (ok && data.ok) {
+      const btn = $('.tm-rename', row);
+      btn.disabled = true;
+      try {
+        const data = await STORE.renameTag(orig, to);
         availableTags = data.tags;
         if (selectedTags.has(orig)) { selectedTags.delete(orig); selectedTags.add(to); }
         await loadRecipes();
         renderTagMgr();
         toast('已改名，更新 ' + data.recipesUpdated + ' 道食譜');
-      } else {
-        toast((data && data.message) || '改名失敗');
+      } catch (e) {
+        btn.disabled = false;
+        toast('改名失敗：' + (e.userMessage || e.message || ''));
       }
     });
     $('.tm-del', row).addEventListener('click', async () => {
       if (!confirm('刪除標籤「' + orig + '」？用到它的食譜會一併移除此標籤。')) return;
-      const { ok, data } = await api('api/tags/' + encodeURIComponent(orig), { method: 'DELETE' });
-      if (ok && data.ok) {
+      const btn = $('.tm-del', row);
+      btn.disabled = true;
+      try {
+        const data = await STORE.deleteTag(orig);
         availableTags = data.tags;
         selectedTags.delete(orig);
         await loadRecipes();
         renderTagMgr();
         toast('已刪除，更新 ' + data.recipesUpdated + ' 道食譜');
+      } catch (e) {
+        btn.disabled = false;
+        toast('刪除失敗：' + (e.userMessage || e.message || ''));
       }
     });
   });
@@ -536,7 +796,7 @@ function openEditor(id) {
   fillEditor(r || {});
   const prev = $('#f-img-preview');
   if (r && r.image) {
-    prev.src = '/images/' + encodeURIComponent(r.image);
+    prev.src = STORE.imageUrl(r.image);
     prev.classList.remove('hidden');
     $('#f-img-clear').classList.remove('hidden');
   } else {
@@ -600,28 +860,34 @@ $('#editor-save').addEventListener('click', async () => {
   if (pendingImageDataUrl === '__CLEAR__') payload.image = '';
   else if (pendingImageDataUrl) payload.imageDataUrl = pendingImageDataUrl;
 
-  const { ok, data } = await api('api/recipes', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!ok || !data || !data.ok) {
-    const msg = (data && data.message) || '儲存失敗，請稍後再試。';
-    return toast('儲存失敗：' + msg);
+  const btn = $('#editor-save');
+  btn.disabled = true;
+  const prevLabel = btn.textContent;
+  btn.textContent = STORE.local ? '儲存中…' : '上傳到 GitHub…';
+  try {
+    await STORE.saveRecipe(payload);
+    toast('已儲存');
+    closeEditor();
+    await loadRecipes();
+  } catch (e) {
+    toast('儲存失敗：' + (e.userMessage || e.message || '請稍後再試'));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prevLabel;
   }
-  toast('已儲存');
-  closeEditor();
-  await loadRecipes();
 });
 
 $('#editor-delete').addEventListener('click', async () => {
   if (!editingId) return;
   if (!confirm('確定刪除這道食譜？')) return;
-  const { ok } = await api('api/recipes/' + encodeURIComponent(editingId), { method: 'DELETE' });
-  if (!ok) return toast('刪除失敗');
-  toast('已刪除');
-  closeEditor();
-  await loadRecipes();
+  try {
+    await STORE.deleteRecipe(editingId);
+    toast('已刪除');
+    closeEditor();
+    await loadRecipes();
+  } catch (e) {
+    toast('刪除失敗：' + (e.userMessage || e.message || ''));
+  }
 });
 
 /* ---------- import + AI organize ---------- */
@@ -767,25 +1033,61 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-/* ---------- read-only mode (GitHub Pages) ---------- */
-function applyReadonlyMode() {
-  if (!STORE.readonly) return;
-  document.body.classList.add('readonly');
-  // hide every write entry point
-  const hide = (sel) => { const el = $(sel); if (el) el.classList.add('hidden'); };
-  hide('#btn-new');
-  hide('#reader-edit');
+/* ---------- mode UI (localhost vs GitHub Pages, key vs no-key) ---------- */
+function show(sel, on) { const el = $(sel); if (el) el.classList.toggle('hidden', !on); }
+function applyModeUI() {
+  const canWrite = STORE.canWrite();
+  document.body.classList.toggle('readonly', !canWrite);
+  // write entry points (new / edit / manage tags) follow canWrite
+  show('#btn-new', canWrite);
+  show('#reader-edit', canWrite);
+  // import + AI organize are localhost-only, never on GitHub Pages
   const importTab = $('.tab[data-view="import"]');
-  if (importTab) importTab.classList.add('hidden');
-  const note = $('#readonly-note');
-  if (note) note.classList.remove('hidden');
-  // if somehow on the import view, force back to list
-  switchView('list');
+  if (importTab) importTab.classList.toggle('hidden', !STORE.local);
+  // settings (key) entry only on the GitHub/Pages build
+  show('#btn-settings', !STORE.local);
+  // read-only note only when the user cannot write (Pages, no key)
+  show('#readonly-note', !canWrite);
+  if (!STORE.local) switchView('list'); // never sit on the (hidden) import view
 }
+
+/* ---------- settings (GitHub key) ---------- */
+$('#btn-settings') && $('#btn-settings').addEventListener('click', openSettings);
+$('#settings-close') && $('#settings-close').addEventListener('click', closeSettings);
+$('#settings') && $('#settings').addEventListener('click', (e) => { if (e.target.id === 'settings') closeSettings(); });
+function openSettings() {
+  const t = getToken();
+  $('#settings-token').value = t;
+  $('#settings-status').textContent = t ? '目前已設定金鑰（可編輯）。' : '尚未設定金鑰（唯讀）。';
+  $('#settings').classList.remove('hidden');
+}
+function closeSettings() { $('#settings').classList.add('hidden'); }
+$('#settings-save') && $('#settings-save').addEventListener('click', async () => {
+  const t = $('#settings-token').value.trim();
+  if (!t) { toast('請先貼上金鑰'); return; }
+  setToken(t);
+  $('#settings-status').textContent = '已儲存，重新載入中…';
+  toast('金鑰已儲存');
+  applyModeUI();
+  await loadTags();
+  renderFilterBar();
+  await loadRecipes();
+  closeSettings();
+});
+$('#settings-clear') && $('#settings-clear').addEventListener('click', async () => {
+  clearToken();
+  $('#settings-token').value = '';
+  $('#settings-status').textContent = '已清除金鑰，回到唯讀。';
+  toast('金鑰已清除');
+  applyModeUI();
+  await loadTags();
+  renderFilterBar();
+  await loadRecipes();
+});
 
 /* ---------- boot ---------- */
 (async function boot() {
-  applyReadonlyMode();
+  applyModeUI();
   await loadTags();
   renderFilterBar();
   await loadRecipes();

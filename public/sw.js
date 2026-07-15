@@ -7,9 +7,9 @@
  * Goal: with only a phone and no connection to the host PC, the user can still
  * SEE recipes and images that were loaded before.
  */
-const SHELL_CACHE = 'recipe-shell-v5';
-const DATA_CACHE = 'recipe-data-v5';
-const IMG_CACHE = 'recipe-img-v5';
+const SHELL_CACHE = 'recipe-shell-v6';
+const DATA_CACHE = 'recipe-data-v6';
+const IMG_CACHE = 'recipe-img-v6';
 const KEEP = [SHELL_CACHE, DATA_CACHE, IMG_CACHE];
 
 // Relative paths so the app works both at localhost root and under a GitHub

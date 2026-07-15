@@ -350,6 +350,20 @@ body {
 }
 .step-thumb-del { padding: 6px 11px; font-size: 13px; }
 
+/* settings / key */
+.safety-note {
+  background: var(--primary-soft);
+  color: var(--ink);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin: 6px 0 14px;
+}
+.settings-help { margin-top: 14px; font-size: 14px; }
+.settings-help summary { cursor: pointer; color: var(--primary); font-weight: 600; }
+.settings-help ol { margin: 10px 0 0; padding-left: 20px; line-height: 1.7; }
+.settings-help code { background: var(--bg); padding: 1px 5px; border-radius: 5px; }
+
 /* read-only (GitHub Pages) note */
 .readonly-note {
   background: var(--primary-soft);

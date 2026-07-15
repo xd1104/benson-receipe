@@ -17,6 +17,7 @@
       <nav class="tabs">
         <button class="tab active" data-view="list">食譜</button>
         <button class="tab" data-view="import">匯入整理</button>
+        <button id="btn-settings" class="tab settings-tab hidden" title="設定金鑰">⚙ 設定</button>
       </nav>
     </div>
   </header>
@@ -114,6 +115,40 @@
         <div class="spacer"></div>
         <button id="editor-cancel" class="btn btn-ghost">取消</button>
         <button id="editor-save" class="btn btn-primary">儲存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SETTINGS (GitHub key) MODAL -->
+  <div id="settings" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>設定 — GitHub 金鑰</h2>
+        <button id="settings-close" class="icon-btn" aria-label="關閉">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="muted">貼上共用的 GitHub 金鑰後，這支手機就能新增／編輯食譜。</p>
+        <div class="safety-note">🔒 金鑰只存在這支手機的瀏覽器（localStorage），不會上傳、不會進程式碼；請只授權這一個食譜倉庫。</div>
+        <label class="field">
+          <span>GitHub 金鑰（Personal Access Token）</span>
+          <input id="settings-token" type="password" autocomplete="off" placeholder="github_pat_..." />
+        </label>
+        <div class="tag-add-row">
+          <button id="settings-save" class="btn btn-primary" type="button">儲存金鑰</button>
+          <button id="settings-clear" class="btn btn-ghost" type="button">清除金鑰</button>
+        </div>
+        <div id="settings-status" class="muted"></div>
+        <details class="settings-help">
+          <summary>怎麼產生金鑰？（fine-grained PAT）</summary>
+          <ol>
+            <li>電腦或手機開 GitHub → 頭像 → <b>Settings</b>。</li>
+            <li>左下 <b>Developer settings</b> → <b>Personal access tokens</b> → <b>Fine-grained tokens</b> → <b>Generate new token</b>。</li>
+            <li>Token name 隨意；Expiration 選一個期限。</li>
+            <li><b>Repository access</b> 選 <b>Only select repositories</b> → 只勾 <b>benson-receipe</b>。</li>
+            <li><b>Permissions</b> → <b>Repository permissions</b> → <b>Contents</b> 設為 <b>Read and write</b>。</li>
+            <li>Generate → 複製那串 <code>github_pat_...</code> → 回到這裡貼上、儲存。</li>
+          </ol>
+        </details>
       </div>
     </div>
   </div>

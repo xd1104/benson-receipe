@@ -118,6 +118,7 @@ async function atomicWrite(file, data, encoding) {
 /* ------------------------------------------------------------------ */
 const AUTO_SYNC = process.env.AUTO_SYNC !== '0';
 let syncEnabled = false; // set true at startup if an origin remote exists
+let syncBranch = 'main';
 let syncTimer = null;
 let syncing = false;
 let syncPending = false;
@@ -138,17 +139,30 @@ function scheduleSync() {
   syncTimer = setTimeout(runSync, 2500); // debounce bursts of saves
 }
 
+// Pull remote before pushing so a phone's changes are merged in and the push
+// stays fast-forwardable. Same-file conflicts (rare — recipes are per-file)
+// auto-resolve in favour of the local PC copy (the declared "true copy"),
+// and are logged. Different-file changes always merge cleanly.
+async function pullRemote(tag) {
+  try {
+    await gitCmd(['pull', '--no-edit', '--no-rebase', '-X', 'ours', 'origin', syncBranch]);
+    console.log('[sync] ' + tag + ' pull ok');
+  } catch (e) {
+    console.error('[sync] ' + tag + ' pull failed (continuing):', e.message);
+  }
+}
+
 async function runSync() {
   if (syncing) return; // a run is in progress; syncPending will re-trigger
   syncing = true;
   syncPending = false;
   try {
     await gitCmd(['add', '-A']);
-    // Only commit if there is something staged.
     const status = await gitCmd(['status', '--porcelain']);
     if (status.trim()) {
       await gitCmd(['commit', '-m', 'auto: sync recipe data ' + new Date().toISOString()]);
     }
+    await pullRemote('pre-push'); // merge phone changes before pushing
     await gitCmd(['push', 'origin', 'HEAD']);
     console.log('[sync] pushed to GitHub');
   } catch (e) {
@@ -164,7 +178,12 @@ async function initSync() {
   if (!AUTO_SYNC) { console.log('[sync] disabled (AUTO_SYNC=0)'); return; }
   try {
     const url = (await gitCmd(['remote', 'get-url', 'origin'])).trim();
-    if (url) { syncEnabled = true; console.log('[sync] enabled -> ' + url); }
+    if (!url) throw new Error('no origin');
+    try { syncBranch = (await gitCmd(['rev-parse', '--abbrev-ref', 'HEAD'])).trim() || 'main'; } catch { syncBranch = 'main'; }
+    syncEnabled = true;
+    console.log('[sync] enabled -> ' + url + ' (' + syncBranch + ')');
+    // On startup, pull once so the PC picks up recipes added from a phone.
+    await pullRemote('startup');
   } catch {
     console.log('[sync] no git remote "origin"; auto-push disabled');
   }
