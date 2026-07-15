@@ -1,0 +1,11 @@
+{
+  "name": "recipe-book",
+  "version": "1.0.0",
+  "description": "Benson's personal recipe book — local-first PWA with AI cleanup",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "license": "MIT"
+}
