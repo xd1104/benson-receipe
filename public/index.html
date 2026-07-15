@@ -59,10 +59,15 @@
           <span>標題</span>
           <input id="f-title" type="text" placeholder="例：番茄炒蛋" />
         </label>
-        <label class="field">
-          <span>標籤（逗號分隔）</span>
-          <input id="f-tags" type="text" placeholder="快炒, 家常" />
-        </label>
+        <div class="field">
+          <span>標籤（點選即可，可複選）</span>
+          <div id="f-tags-chips" class="chips"></div>
+          <div class="tag-add-row">
+            <input id="f-newtag" type="text" placeholder="打新標籤名稱…" />
+            <button id="f-newtag-btn" class="btn btn-ghost" type="button">＋ 新增</button>
+            <button id="f-managetags-btn" class="btn btn-ghost" type="button">管理標籤</button>
+          </div>
+        </div>
         <div class="field">
           <span>圖片</span>
           <div class="img-row">
@@ -74,14 +79,16 @@
             <button id="f-img-clear" class="btn btn-ghost hidden" type="button">移除圖片</button>
           </div>
         </div>
-        <label class="field">
-          <span>食材（每行一項）</span>
-          <textarea id="f-ingredients" rows="6" placeholder="番茄 2 顆&#10;蛋 3 顆&#10;鹽 少許"></textarea>
-        </label>
-        <label class="field">
-          <span>步驟（每行一步）</span>
-          <textarea id="f-steps" rows="8" placeholder="蛋打散加少許鹽&#10;熱鍋下油炒蛋盛起&#10;炒番茄後回鍋拌炒"></textarea>
-        </label>
+        <div class="field">
+          <span>食材</span>
+          <div id="f-ingredients-list" class="row-list" data-kind="ing"></div>
+          <button id="f-add-ing" class="btn btn-ghost add-row-btn" type="button">＋ 加一項食材</button>
+        </div>
+        <div class="field">
+          <span>步驟</span>
+          <div id="f-steps-list" class="row-list" data-kind="step"></div>
+          <button id="f-add-step" class="btn btn-ghost add-row-btn" type="button">＋ 加一步</button>
+        </div>
         <label class="field">
           <span>備註</span>
           <textarea id="f-notes" rows="3" placeholder="小訣竅、份量、來源…"></textarea>
@@ -92,6 +99,28 @@
         <div class="spacer"></div>
         <button id="editor-cancel" class="btn btn-ghost">取消</button>
         <button id="editor-save" class="btn btn-primary">儲存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MANAGE TAGS MODAL -->
+  <div id="tagmgr" class="modal hidden">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>管理標籤</h2>
+        <button id="tagmgr-close" class="icon-btn" aria-label="關閉">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="muted">改名或刪除標籤時，會自動同步更新所有用到它的食譜。</p>
+        <div id="tagmgr-list" class="tagmgr-list"></div>
+        <div class="tag-add-row" style="margin-top:14px">
+          <input id="tagmgr-new" type="text" placeholder="新增一個標籤選項…" />
+          <button id="tagmgr-add" class="btn btn-primary" type="button">新增</button>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <div class="spacer"></div>
+        <button id="tagmgr-done" class="btn btn-primary">完成</button>
       </div>
     </div>
   </div>

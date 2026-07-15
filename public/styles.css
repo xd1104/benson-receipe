@@ -271,6 +271,80 @@ body {
   border: 1px solid var(--line);
 }
 
+/* tag chips selector */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 14px;
+  cursor: pointer;
+  user-select: none;
+}
+.chip.selected {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-ink);
+  font-weight: 600;
+}
+.chips:empty::before { content: "尚無標籤，可在下方新增"; color: var(--muted); font-size: 13px; }
+.tag-add-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.tag-add-row input { flex: 1; min-width: 120px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 14px; background: var(--surface); color: var(--ink); }
+
+/* row-list editor (ingredients / steps) */
+.row-list { display: flex; flex-direction: column; gap: 8px; }
+.row-item { display: flex; align-items: center; gap: 6px; }
+.row-item .row-num {
+  min-width: 24px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--primary);
+  font-size: 14px;
+}
+.row-item .row-bullet { min-width: 18px; text-align: center; color: var(--muted); }
+.row-item input.row-text {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-size: 15px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.row-item .row-btn {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  border-radius: 8px;
+  width: 34px;
+  height: 38px;
+  font-size: 15px;
+  cursor: pointer;
+  flex: none;
+  padding: 0;
+}
+.row-item .row-btn:disabled { opacity: 0.3; cursor: default; }
+.row-item .row-btn.del { color: var(--danger); }
+.add-row-btn { margin-top: 10px; width: 100%; }
+
+/* tag manager */
+.tagmgr-list { display: flex; flex-direction: column; gap: 8px; }
+.tagmgr-row { display: flex; align-items: center; gap: 6px; }
+.tagmgr-row input {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  font-size: 15px;
+  background: var(--surface);
+  color: var(--ink);
+}
+.tagmgr-row .btn { padding: 8px 12px; font-size: 14px; }
+
 .hidden { display: none !important; }
 
 /* toast */

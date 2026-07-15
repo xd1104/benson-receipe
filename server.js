@@ -21,6 +21,9 @@ const DATA_DIR = path.join(ROOT, 'data');
 const RECIPES_DIR = path.join(DATA_DIR, 'recipes');
 const IMAGES_DIR = path.join(DATA_DIR, 'images');
 const IMPORTS_DIR = path.join(DATA_DIR, 'imports');
+const TAGS_FILE = path.join(DATA_DIR, 'tags.json');
+
+const DEFAULT_TAGS = ['家常菜', '湯品', '麵食', '飯類', '甜點', '快速料理', '宴客菜'];
 
 const PORT = process.env.PORT || 3517;
 
@@ -213,6 +216,56 @@ async function listRecipes() {
   }
   out.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* tags storage + cascade                                              */
+/* ------------------------------------------------------------------ */
+
+async function readTags() {
+  try {
+    const raw = await fsp.readFile(TAGS_FILE, 'utf8');
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr)) return arr.map((x) => String(x)).filter(Boolean);
+  } catch {
+    /* missing or bad -> seed */
+  }
+  await writeTags(DEFAULT_TAGS);
+  return DEFAULT_TAGS.slice();
+}
+
+async function writeTags(list) {
+  const clean = [];
+  for (const t of list) {
+    const s = String(t).trim();
+    if (s && !clean.includes(s)) clean.push(s);
+  }
+  await fsp.writeFile(TAGS_FILE, JSON.stringify(clean, null, 2), 'utf8');
+  return clean;
+}
+
+// apply a transform to every recipe's tags array and rewrite changed files
+async function updateRecipesTags(transform) {
+  const files = (await fsp.readdir(RECIPES_DIR)).filter((f) => f.endsWith('.md'));
+  let changed = 0;
+  for (const f of files) {
+    const id = f.replace(/\.md$/, '');
+    let recipe;
+    try {
+      recipe = markdownToRecipe(id, await fsp.readFile(path.join(RECIPES_DIR, f), 'utf8'));
+    } catch {
+      continue;
+    }
+    const before = JSON.stringify(recipe.tags || []);
+    const next = transform(recipe.tags || []);
+    if (JSON.stringify(next) !== before) {
+      recipe.tags = next;
+      // preserve createdAt already in recipe object
+      await fsp.writeFile(path.join(RECIPES_DIR, f), recipeToMarkdown(recipe), 'utf8');
+      changed++;
+    }
+  }
+  return changed;
 }
 
 /* ------------------------------------------------------------------ */
@@ -456,6 +509,53 @@ async function handleApi(req, res, url) {
       }
       return sendJson(res, 200, { ok: true });
     }
+  }
+
+  // GET /api/tags
+  if (p === '/api/tags' && method === 'GET') {
+    return sendJson(res, 200, { tags: await readTags() });
+  }
+
+  // POST /api/tags  { name }  -> add a tag option
+  if (p === '/api/tags' && method === 'POST') {
+    const body = await readJson(req);
+    const name = String(body.name || '').trim();
+    if (!name) return sendJson(res, 400, { ok: false, message: '標籤名稱不可為空。' });
+    const tags = await readTags();
+    if (tags.includes(name)) return sendJson(res, 200, { ok: true, tags, note: 'exists' });
+    tags.push(name);
+    const saved = await writeTags(tags);
+    return sendJson(res, 200, { ok: true, tags: saved });
+  }
+
+  // PUT /api/tags  { from, to }  -> rename option + cascade to recipes
+  if (p === '/api/tags' && method === 'PUT') {
+    const body = await readJson(req);
+    const from = String(body.from || '').trim();
+    const to = String(body.to || '').trim();
+    if (!from || !to) return sendJson(res, 400, { ok: false, message: '缺少原名稱或新名稱。' });
+    let tags = await readTags();
+    if (!tags.includes(from)) return sendJson(res, 404, { ok: false, message: '找不到該標籤。' });
+    tags = tags.map((t) => (t === from ? to : t));
+    const saved = await writeTags(tags); // writeTags dedupes if `to` already existed
+    const changed = await updateRecipesTags((rt) => {
+      const mapped = rt.map((t) => (t === from ? to : t));
+      const uniq = [];
+      for (const t of mapped) if (!uniq.includes(t)) uniq.push(t);
+      return uniq;
+    });
+    return sendJson(res, 200, { ok: true, tags: saved, recipesUpdated: changed });
+  }
+
+  // DELETE /api/tags/:name  -> remove option + strip from all recipes
+  const tagSingle = /^\/api\/tags\/([^/]+)$/.exec(p);
+  if (tagSingle && method === 'DELETE') {
+    const name = decodeURIComponent(tagSingle[1]).trim();
+    let tags = await readTags();
+    tags = tags.filter((t) => t !== name);
+    const saved = await writeTags(tags);
+    const changed = await updateRecipesTags((rt) => rt.filter((t) => t !== name));
+    return sendJson(res, 200, { ok: true, tags: saved, recipesUpdated: changed });
   }
 
   // POST /api/import  { files: [{name, content}] }
