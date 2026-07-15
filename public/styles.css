@@ -461,8 +461,10 @@ body.scroll-locked {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* generic dialog (confirm / prompt) — high contrast, centered */
-.dialog-modal { align-items: center; padding: 20px; }
+/* generic dialog (confirm / prompt) — high contrast, centered, ALWAYS on top.
+   Other overlays (reader/editor/tagmgr/settings) are z-index 40; the dialog
+   sits above them so it's never hidden behind the modal that triggered it. */
+.dialog-modal { align-items: center; padding: 20px; z-index: 80; }
 .dialog-card { max-width: 400px; border-radius: 18px; }
 .dialog-body { padding: 22px 20px 6px; }
 .dialog-title { margin: 0 0 8px; font-size: 18px; font-weight: 700; color: var(--ink); }
@@ -636,7 +638,7 @@ body.scroll-locked {
   padding: 11px 18px;
   border-radius: 999px;
   font-size: 14px;
-  z-index: 60;
+  z-index: 100; /* above every overlay and the dialog */
   box-shadow: var(--shadow);
 }
 
