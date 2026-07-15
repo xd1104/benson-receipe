@@ -468,6 +468,7 @@ let selectedTags = new Set();
 let editingId = null;
 let pendingImageDataUrl = null; // dataURL, or '__CLEAR__', or null
 let activeFilter = null; // null = 全部, otherwise a tag string
+let viewMode = (() => { try { return localStorage.getItem('recipe_view_mode') === 'list' ? 'list' : 'card'; } catch { return 'card'; } })();
 
 /* ---------- view switching ---------- */
 function switchView(name) {
@@ -765,6 +766,36 @@ function applyTagDeleteLocal(name) {
   recipes.forEach((r) => { if (r.tags) r.tags = r.tags.filter((t) => t !== name); });
 }
 
+function cardHTML(r) {
+  const thumb = r.image
+    ? `<img class="thumb" src="${displayImageUrl(r.image)}" alt="${esc(r.title)}" />`
+    : `<div class="thumb placeholder">🍲</div>`;
+  const tags = (r.tags || []).slice(0, 3).map((t) => `<span class="tag">${esc(t)}</span>`).join('');
+  return `<article class="recipe-card" data-id="${esc(r.id)}">
+    ${thumb}
+    <div class="body">
+      <h3>${esc(r.title)}</h3>
+      <div class="meta">${(r.ingredients || []).length} 種食材 · ${(r.steps || []).length} 步驟</div>
+      <div>${tags}</div>
+    </div>
+  </article>`;
+}
+
+function listRowHTML(r) {
+  const thumb = r.image
+    ? `<img class="rl-thumb" src="${displayImageUrl(r.image)}" alt="${esc(r.title)}" />`
+    : `<div class="rl-thumb placeholder">🍳</div>`;
+  const tags = (r.tags || []).slice(0, 3).map((t) => `<span class="tag">${esc(t)}</span>`).join('');
+  return `<article class="recipe-row" data-id="${esc(r.id)}">
+    ${thumb}
+    <div class="rl-body">
+      <h3>${esc(r.title)}</h3>
+      <div class="meta">${(r.ingredients || []).length} 種食材 · ${(r.steps || []).length} 步驟</div>
+      <div class="rl-tags">${tags}</div>
+    </div>
+  </article>`;
+}
+
 function renderRecipes() {
   const q = $('#search').value.trim().toLowerCase();
   const grid = $('#recipe-grid');
@@ -775,25 +806,32 @@ function renderRecipes() {
     return hay.includes(q);
   });
   $('#empty-hint').classList.toggle('hidden', recipes.length !== 0);
-  grid.innerHTML = filtered
-    .map((r) => {
-      const thumb = r.image
-        ? `<img class="thumb" src="${displayImageUrl(r.image)}" alt="${esc(r.title)}" />`
-        : `<div class="thumb placeholder">🍲</div>`;
-      const tags = (r.tags || []).slice(0, 3).map((t) => `<span class="tag">${esc(t)}</span>`).join('');
-      return `<article class="recipe-card" data-id="${esc(r.id)}">
-        ${thumb}
-        <div class="body">
-          <h3>${esc(r.title)}</h3>
-          <div class="meta">${(r.ingredients || []).length} 種食材 · ${(r.steps || []).length} 步驟</div>
-          <div>${tags}</div>
-        </div>
-      </article>`;
-    })
-    .join('');
-  $$('.recipe-card', grid).forEach((c) => c.addEventListener('click', () => openReader(c.dataset.id)));
+  const isList = viewMode === 'list';
+  grid.className = isList ? 'recipe-list' : 'grid';
+  grid.innerHTML = filtered.map(isList ? listRowHTML : cardHTML).join('');
+  $$('.recipe-card, .recipe-row', grid).forEach((c) => c.addEventListener('click', () => openReader(c.dataset.id)));
 }
 $('#search').addEventListener('input', renderRecipes);
+
+/* ---------- card / list view toggle (remembered) ---------- */
+function updateViewToggleUI() {
+  const cardBtn = $('#vt-card');
+  const listBtn = $('#vt-list');
+  if (!cardBtn || !listBtn) return;
+  const isList = viewMode === 'list';
+  cardBtn.classList.toggle('active', !isList);
+  listBtn.classList.toggle('active', isList);
+  cardBtn.setAttribute('aria-pressed', String(!isList));
+  listBtn.setAttribute('aria-pressed', String(isList));
+}
+function setViewMode(m) {
+  viewMode = m === 'list' ? 'list' : 'card';
+  try { localStorage.setItem('recipe_view_mode', viewMode); } catch {}
+  updateViewToggleUI();
+  renderRecipes();
+}
+$('#vt-card') && $('#vt-card').addEventListener('click', () => setViewMode('card'));
+$('#vt-list') && $('#vt-list').addEventListener('click', () => setViewMode('list'));
 
 /* ---------- reading mode ---------- */
 let readerId = null;
@@ -1193,6 +1231,7 @@ $$('.modal').forEach((m) => new MutationObserver(refreshScrollLock).observe(m, {
 /* ---------- boot ---------- */
 (async function boot() {
   applyModeUI();
+  updateViewToggleUI();
   await loadTags();
   renderFilterBar();
   await loadRecipes();

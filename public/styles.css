@@ -439,8 +439,81 @@ body.scroll-locked {
   margin: 0 0 14px;
 }
 
-/* category filter bar */
-.filter-bar { margin-bottom: 16px; }
+/* view toggle (segmented card / list) */
+.view-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  flex: none;
+}
+.vt-btn {
+  border: none;
+  background: var(--surface);
+  color: var(--muted);
+  padding: 0 13px;
+  height: 42px;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.vt-btn + .vt-btn { border-left: 1px solid var(--line); }
+.vt-btn.active { background: var(--primary); color: var(--primary-ink); }
+.btn.icon-only { padding: 10px 13px; }
+
+/* category filter bar — single row, horizontally scrollable on small screens */
+.filter-bar {
+  margin-bottom: 16px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.filter-bar .filter-chip { flex: 0 0 auto; }
+
+/* list (compact) view */
+.recipe-list { display: flex; flex-direction: column; gap: 8px; }
+.recipe-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 12px;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  transition: transform 0.08s ease;
+}
+.recipe-row:active { transform: scale(0.995); }
+.rl-thumb {
+  width: 46px;
+  height: 46px;
+  border-radius: 9px;
+  object-fit: cover;
+  flex: none;
+  background: var(--primary-soft);
+}
+.rl-thumb.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+}
+.rl-body { min-width: 0; flex: 1; }
+.rl-body h3 {
+  margin: 0 0 2px;
+  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rl-body .meta { font-size: 12px; color: var(--muted); }
+.rl-tags { margin-top: 3px; display: flex; gap: 4px; overflow: hidden; flex-wrap: nowrap; }
+.rl-tags .tag { margin: 0; }
 
 /* reading mode */
 .reader-body { font-size: 17px; line-height: 1.65; }
