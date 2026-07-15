@@ -1,8 +1,8 @@
 ---
 title: "經典義式青醬 (Pesto)"
-tags: []
+tags: ["西式"]
 createdAt: "2026-07-15T05:38:33.482Z"
-updatedAt: "2026-07-15T07:00:21.054Z"
+updatedAt: "2026-07-15T08:48:51.281Z"
 image: ""
 ---
 
