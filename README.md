@@ -78,8 +78,24 @@ image: "1752....-ab12.jpg"
 - **原子寫入**：所有存檔先寫暫存檔再 rename 覆蓋，避免中途當機產生半截壞檔。
 - PWA：手機瀏覽器可「加到主畫面」安裝，響應式版面。
 
+## 手機瀏覽（GitHub Pages，唯讀）
+
+手機或任何裝置都能開 GitHub Pages 網址「唯讀瀏覽」食譜（含分類篩選、閱讀模式、步驟圖），免金鑰。
+
+**電腦端會自動同步到 GitHub**：在電腦上新增／編輯／刪除食譜或改標籤後，後端會自動 `git add/commit/push`（有 debounce，失敗只記 log、不影響存檔）。要停用自動同步：啟動前設 `AUTO_SYNC=0`。
+
+**資料來源怎麼切**（前端 DataStore）：
+- 網址是 `localhost` → **LocalStore**：走本機 `/api`，全功能（新增／編輯／匯入／AI）。
+- 網址非 localhost（即 Pages）→ **GitHubStore**：直接讀公開 repo `xd1104/benson-receipe` 的 `data/recipes/*.md`、`data/images/`、`data/tags.json`（走 GitHub API + raw，免 token），**唯讀**，隱藏所有寫入入口。
+- 測試用：本機開 `http://localhost:3517/?store=github` 可強制 GitHub 唯讀模式。
+
+**Benson 要在 GitHub 開 Pages**：Settings → Pages → Build and deployment → Source 選「**Deploy from a branch**」→ Branch 選 **`main`**、資料夾選 **`/docs`** → Save。網址會是 `https://xd1104.github.io/benson-receipe/`。
+（`docs/` 是由 `public/` 自動產生的，**不要手改 `docs/`**；改前端只改 `public/`，`start.bat` 會呼叫 `node build.js` 重新產生。）
+
 ## 技術
 
-- 前端：原生 HTML/CSS/JS，單頁 PWA（manifest + service worker + icon）。
-- 後端：Node.js 內建 `http`，**零外部依賴**。圖片以 base64 JSON 上傳、後端解碼存檔。
+- 前端：原生 HTML/CSS/JS，單頁 PWA（manifest + service worker + icon）。**所有路徑用相對路徑**，同一份檔案可在 localhost 根目錄與 Pages 子路徑 `/benson-receipe/` 下運作。
+- DataStore 抽象：LocalStore（本機 /api）與 GitHubStore（唯讀讀公開 repo），依 hostname 自動切換。
+- 後端：Node.js 內建 `http`，**零外部依賴**。圖片以 base64 JSON 上傳、後端解碼存檔；所有寫檔為原子寫入；寫入後自動同步 GitHub。
+- 部署：`build.js` 把 `public/` 鏡射到 `docs/` 給 Pages（單一來源，不維護分岔複本）。
 - Port：預設 3517，可用環境變數 `PORT` 覆蓋。
