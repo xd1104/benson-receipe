@@ -45,6 +45,19 @@
         <div id="import-status" class="muted"></div>
       </div>
       <div id="import-list" class="import-list"></div>
+
+      <div class="card">
+        <h2>備份 / 還原</h2>
+        <p class="muted">匯出會下載一個含「所有食譜＋圖片」的 JSON 備份檔。還原會用備份內容覆蓋同名食譜。</p>
+        <div class="tag-add-row" style="margin-top:4px">
+          <button id="btn-export" class="btn btn-primary" type="button">⬇ 匯出全部備份</button>
+          <label class="btn btn-ghost">
+            ⬆ 還原備份
+            <input id="restore-input" type="file" accept="application/json,.json" hidden />
+          </label>
+        </div>
+        <div id="backup-status" class="muted"></div>
+      </div>
     </section>
   </main>
 
@@ -100,6 +113,32 @@
         <div class="spacer"></div>
         <button id="editor-cancel" class="btn btn-ghost">取消</button>
         <button id="editor-save" class="btn btn-primary">儲存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- READING MODE MODAL -->
+  <div id="reader" class="modal reader-modal hidden">
+    <div class="modal-card reader-card">
+      <div class="modal-head">
+        <h2 id="reader-title">食譜</h2>
+        <button id="reader-close" class="icon-btn" aria-label="關閉">✕</button>
+      </div>
+      <div class="modal-body reader-body">
+        <img id="reader-cover" class="reader-cover hidden" alt="封面" />
+        <div id="reader-tags" class="reader-tags"></div>
+        <h3 class="reader-h">食材</h3>
+        <ul id="reader-ings" class="reader-ings"></ul>
+        <h3 class="reader-h">步驟</h3>
+        <ol id="reader-steps" class="reader-steps"></ol>
+        <div id="reader-notes-wrap" class="hidden">
+          <h3 class="reader-h">備註</h3>
+          <p id="reader-notes" class="reader-notes"></p>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <div class="spacer"></div>
+        <button id="reader-edit" class="btn btn-primary">✎ 編輯</button>
       </div>
     </div>
   </div>

@@ -98,6 +98,21 @@ function safeName(name) {
   return path.basename(String(name || '')).replace(/[^\w.\-一-鿿]+/g, '_');
 }
 
+// Atomic write: write to a private temp file, then rename over the target.
+// rename() on the same volume is atomic, so a crash mid-write never leaves a
+// half-written target file. On failure we clean up our own temp file.
+async function atomicWrite(file, data, encoding) {
+  const tmp = file + '.tmp~' + process.pid + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+  try {
+    if (encoding) await fsp.writeFile(tmp, data, encoding);
+    else await fsp.writeFile(tmp, data); // Buffer path
+    await fsp.rename(tmp, file);
+  } catch (e) {
+    try { await fsp.unlink(tmp); } catch { /* ignore */ }
+    throw e;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* recipe (markdown + frontmatter) serialization                       */
 /* ------------------------------------------------------------------ */
@@ -255,7 +270,7 @@ async function writeTags(list) {
     const s = String(t).trim();
     if (s && !clean.includes(s)) clean.push(s);
   }
-  await fsp.writeFile(TAGS_FILE, JSON.stringify(clean, null, 2), 'utf8');
+  await atomicWrite(TAGS_FILE, JSON.stringify(clean, null, 2), 'utf8');
   return clean;
 }
 
@@ -276,7 +291,7 @@ async function updateRecipesTags(transform) {
     if (JSON.stringify(next) !== before) {
       recipe.tags = next;
       // preserve createdAt already in recipe object
-      await fsp.writeFile(path.join(RECIPES_DIR, f), recipeToMarkdown(recipe), 'utf8');
+      await atomicWrite(path.join(RECIPES_DIR, f), recipeToMarkdown(recipe), 'utf8');
       changed++;
     }
   }
@@ -454,7 +469,7 @@ async function saveImageDataUrl(dataUrl) {
   const ext = m[2].toLowerCase() === 'jpeg' ? 'jpg' : m[2].toLowerCase();
   const buf = Buffer.from(m[3], 'base64');
   const name = Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.' + ext;
-  await fsp.writeFile(path.join(IMAGES_DIR, name), buf);
+  await atomicWrite(path.join(IMAGES_DIR, name), buf);
   return name;
 }
 
@@ -510,7 +525,7 @@ async function handleApi(req, res, url) {
       image,
       createdAt,
     };
-    await fsp.writeFile(path.join(RECIPES_DIR, id + '.md'), recipeToMarkdown(recipe), 'utf8');
+    await atomicWrite(path.join(RECIPES_DIR, id + '.md'), recipeToMarkdown(recipe), 'utf8');
     return sendJson(res, 200, { ok: true, recipe: markdownToRecipe(id, await fsp.readFile(path.join(RECIPES_DIR, id + '.md'), 'utf8')) });
   }
 
@@ -592,7 +607,7 @@ async function handleApi(req, res, url) {
       const name = safeName(f.name || ('import-' + Date.now() + '.txt'));
       const stamp = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
       const stored = stamp + '__' + name;
-      await fsp.writeFile(path.join(IMPORTS_DIR, stored), String(f.content || ''), 'utf8');
+      await atomicWrite(path.join(IMPORTS_DIR, stored), String(f.content || ''), 'utf8');
       saved.push({ id: stored, name, size: Buffer.byteLength(String(f.content || ''), 'utf8') });
     }
     return sendJson(res, 200, { ok: true, imported: saved });
@@ -600,7 +615,7 @@ async function handleApi(req, res, url) {
 
   // GET /api/imports
   if (p === '/api/imports' && method === 'GET') {
-    const files = (await fsp.readdir(IMPORTS_DIR)).filter((f) => !f.startsWith('.'));
+    const files = (await fsp.readdir(IMPORTS_DIR)).filter((f) => !f.startsWith('.') && !f.includes('.tmp~'));
     const out = [];
     for (const f of files) {
       const content = await fsp.readFile(path.join(IMPORTS_DIR, f), 'utf8');
@@ -631,6 +646,62 @@ async function handleApi(req, res, url) {
     if (!text.trim()) return sendJson(res, 400, { ok: false, code: 'empty', message: '沒有可整理的文字。' });
     const result = await runClaudeOrganize(text);
     return sendJson(res, result.ok ? 200 : 200, result);
+  }
+
+  // GET /api/export  -> single JSON backup with every recipe + image (base64) + tags
+  if (p === '/api/export' && method === 'GET') {
+    const recipeFiles = (await fsp.readdir(RECIPES_DIR)).filter((f) => f.endsWith('.md'));
+    const recipesOut = [];
+    for (const f of recipeFiles) {
+      recipesOut.push({ filename: f, content: await fsp.readFile(path.join(RECIPES_DIR, f), 'utf8') });
+    }
+    const imageFiles = (await fsp.readdir(IMAGES_DIR)).filter((f) => !f.startsWith('.') && !f.includes('.tmp~'));
+    const imagesOut = [];
+    for (const f of imageFiles) {
+      const buf = await fsp.readFile(path.join(IMAGES_DIR, f));
+      imagesOut.push({ filename: f, base64: buf.toString('base64') });
+    }
+    const backup = {
+      app: 'recipe-book',
+      backupVersion: 1,
+      exportedAt: new Date().toISOString(),
+      tags: await readTags(),
+      recipes: recipesOut,
+      images: imagesOut,
+    };
+    const body = JSON.stringify(backup);
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="recipe-backup-' + stamp + '.json"',
+      'Cache-Control': 'no-store',
+    });
+    return res.end(body);
+  }
+
+  // POST /api/restore  { backup }  -> write recipes + images + tags back (atomic, merge)
+  if (p === '/api/restore' && method === 'POST') {
+    const body = await readJson(req);
+    const backup = body.backup || body;
+    if (!backup || backup.app !== 'recipe-book' || !Array.isArray(backup.recipes)) {
+      return sendJson(res, 400, { ok: false, message: '這不是有效的食譜備份檔。' });
+    }
+    let recipeCount = 0;
+    let imageCount = 0;
+    for (const img of backup.images || []) {
+      const name = safeName(img.filename || '');
+      if (!name || typeof img.base64 !== 'string') continue;
+      await atomicWrite(path.join(IMAGES_DIR, name), Buffer.from(img.base64, 'base64'));
+      imageCount++;
+    }
+    for (const rec of backup.recipes) {
+      const name = safeName(rec.filename || '');
+      if (!name.endsWith('.md') || typeof rec.content !== 'string') continue;
+      await atomicWrite(path.join(RECIPES_DIR, name), rec.content, 'utf8');
+      recipeCount++;
+    }
+    if (Array.isArray(backup.tags)) await writeTags(backup.tags);
+    return sendJson(res, 200, { ok: true, recipeCount, imageCount });
   }
 
   return sendJson(res, 404, { error: 'unknown endpoint' });
@@ -679,8 +750,16 @@ const server = http.createServer(async (req, res) => {
       await serveStatic(req, res, url);
     }
   } catch (e) {
-    if (!res.headersSent) sendJson(res, 500, { error: 'server error', message: String(e && e.message) });
-    else res.end();
+    const msg = String((e && e.message) || e);
+    if (!res.headersSent) {
+      if (/payload too large/i.test(msg)) {
+        sendJson(res, 413, { ok: false, code: 'too_large', message: '檔案太大，超過伺服器上限（圖片會自動壓縮，若仍過大請換小一點的圖）。' });
+      } else if (e instanceof SyntaxError) {
+        sendJson(res, 400, { ok: false, code: 'bad_json', message: '請求格式錯誤。' });
+      } else {
+        sendJson(res, 500, { ok: false, code: 'server_error', message: '伺服器錯誤：' + msg });
+      }
+    } else res.end();
   }
 });
 

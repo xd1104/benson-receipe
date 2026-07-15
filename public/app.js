@@ -17,10 +17,63 @@ function esc(s) {
 }
 
 async function api(path, opts) {
-  const res = await fetch(path, opts);
+  let res;
+  try {
+    res = await fetch(path, opts);
+  } catch {
+    return { ok: false, status: 0, offline: true, data: { ok: false, code: 'offline', message: '連不到食譜伺服器（可能離線，或那台電腦沒開機）。' } };
+  }
   const ct = res.headers.get('content-type') || '';
-  const data = ct.includes('application/json') ? await res.json() : await res.text();
+  let data;
+  try {
+    data = ct.includes('application/json') ? await res.json() : await res.text();
+  } catch {
+    data = null;
+  }
   return { ok: res.ok, status: res.status, data };
+}
+
+// Downscale an image file to a data URL (JPEG). Longest edge ~maxEdge px.
+function resizeImage(file, maxEdge = 1600, quality = 0.8) {
+  return new Promise((resolve, reject) => {
+    if (!file || !file.type || !file.type.startsWith('image/')) {
+      reject(new Error('unsupported'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('read'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('decode'));
+      img.onload = () => {
+        const scale = Math.min(1, maxEdge / Math.max(img.width, img.height));
+        const w = Math.max(1, Math.round(img.width * scale));
+        const h = Math.max(1, Math.round(img.height * scale));
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff'; // flatten transparency so JPEG isn't black
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        try {
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        } catch (err) {
+          reject(new Error('encode'));
+        }
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function imgErrorMsg(err) {
+  const k = err && err.message;
+  if (k === 'unsupported') return '不支援的檔案格式，請選圖片檔（JPG/PNG 等）。';
+  if (k === 'decode') return '圖片讀取失敗，可能檔案毀損。';
+  if (k === 'read') return '無法讀取檔案。';
+  return '圖片處理失敗，請換一張試試。';
 }
 
 /* ---------- state ---------- */
@@ -184,12 +237,18 @@ function addRow(kind, value) {
     row._image = image; // existing filename
     row._imageDataUrl = null; // newly picked dataURL
     updateStepThumb(row);
-    $('.row-imgfile', row).addEventListener('change', (e) => {
+    $('.row-imgfile', row).addEventListener('change', async (e) => {
       const file = e.target.files && e.target.files[0];
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => { row._imageDataUrl = reader.result; row._image = ''; updateStepThumb(row); };
-      reader.readAsDataURL(file);
+      try {
+        const dataUrl = await resizeImage(file);
+        row._imageDataUrl = dataUrl;
+        row._image = '';
+        updateStepThumb(row);
+      } catch (err) {
+        toast(imgErrorMsg(err));
+        e.target.value = '';
+      }
     });
     $('.step-thumb-del', row).addEventListener('click', () => {
       row._image = ''; row._imageDataUrl = null; $('.row-imgfile', row).value = ''; updateStepThumb(row);
@@ -303,9 +362,45 @@ function renderRecipes() {
       </article>`;
     })
     .join('');
-  $$('.recipe-card', grid).forEach((c) => c.addEventListener('click', () => openEditor(c.dataset.id)));
+  $$('.recipe-card', grid).forEach((c) => c.addEventListener('click', () => openReader(c.dataset.id)));
 }
 $('#search').addEventListener('input', renderRecipes);
+
+/* ---------- reading mode ---------- */
+let readerId = null;
+function openReader(id) {
+  const r = recipes.find((x) => x.id === id);
+  if (!r) return;
+  readerId = id;
+  $('#reader-title').textContent = r.title || '未命名食譜';
+  const cover = $('#reader-cover');
+  if (r.image) { cover.src = '/images/' + encodeURIComponent(r.image); cover.classList.remove('hidden'); }
+  else { cover.src = ''; cover.classList.add('hidden'); }
+  $('#reader-tags').innerHTML = (r.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('');
+  $('#reader-ings').innerHTML =
+    (r.ingredients || []).map((i) => `<li>${esc(i)}</li>`).join('') || '<li class="muted">（尚未填食材）</li>';
+  $('#reader-steps').innerHTML =
+    (r.steps || [])
+      .map((s) => {
+        const text = typeof s === 'string' ? s : s && s.text ? s.text : '';
+        const image = typeof s === 'object' && s && s.image ? s.image : '';
+        const img = image ? `<img class="reader-step-img" src="/images/${encodeURIComponent(image)}" alt="步驟圖" />` : '';
+        return `<li><div class="reader-step-text">${esc(text)}</div>${img}</li>`;
+      })
+      .join('') || '<li class="muted">（尚未填步驟）</li>';
+  const notesWrap = $('#reader-notes-wrap');
+  if (r.notes && String(r.notes).trim()) {
+    $('#reader-notes').textContent = r.notes;
+    notesWrap.classList.remove('hidden');
+  } else {
+    notesWrap.classList.add('hidden');
+  }
+  $('#reader').classList.remove('hidden');
+}
+function closeReader() { $('#reader').classList.add('hidden'); readerId = null; }
+$('#reader-close').addEventListener('click', closeReader);
+$('#reader').addEventListener('click', (e) => { if (e.target.id === 'reader') closeReader(); });
+$('#reader-edit').addEventListener('click', () => { const id = readerId; closeReader(); openEditor(id); });
 
 /* ---------- editor modal ---------- */
 function ensureTagsAvailable(tags) {
@@ -356,18 +451,20 @@ $('#editor-close').addEventListener('click', closeEditor);
 $('#editor-cancel').addEventListener('click', closeEditor);
 $('#editor').addEventListener('click', (e) => { if (e.target.id === 'editor') closeEditor(); });
 
-$('#f-image').addEventListener('change', (e) => {
+$('#f-image').addEventListener('change', async (e) => {
   const file = e.target.files && e.target.files[0];
   if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => {
-    pendingImageDataUrl = reader.result;
+  try {
+    const dataUrl = await resizeImage(file);
+    pendingImageDataUrl = dataUrl;
     const prev = $('#f-img-preview');
-    prev.src = reader.result;
+    prev.src = dataUrl;
     prev.classList.remove('hidden');
     $('#f-img-clear').classList.remove('hidden');
-  };
-  reader.readAsDataURL(file);
+  } catch (err) {
+    toast(imgErrorMsg(err));
+    e.target.value = '';
+  }
 });
 
 $('#f-img-clear').addEventListener('click', () => {
@@ -399,7 +496,10 @@ $('#editor-save').addEventListener('click', async () => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!ok || !data.ok) return toast('儲存失敗');
+  if (!ok || !data || !data.ok) {
+    const msg = (data && data.message) || '儲存失敗，請稍後再試。';
+    return toast('儲存失敗：' + msg);
+  }
   toast('已儲存');
   closeEditor();
   await loadRecipes();
@@ -505,6 +605,51 @@ async function aiOrganize(id, el) {
     switchView('list');
   });
 }
+
+/* ---------- backup: export / restore ---------- */
+$('#btn-export').addEventListener('click', () => {
+  // GET with Content-Disposition:attachment -> browser downloads the file
+  $('#backup-status').textContent = '正在準備備份下載…';
+  const a = document.createElement('a');
+  a.href = '/api/export';
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => { $('#backup-status').textContent = '若沒自動下載，請檢查瀏覽器下載列。'; }, 800);
+});
+
+$('#restore-input').addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  if (!confirm('還原會用備份內容覆蓋同名食譜與圖片，確定要繼續？')) { e.target.value = ''; return; }
+  let backup;
+  try {
+    backup = JSON.parse(await file.text());
+  } catch {
+    toast('備份檔格式錯誤，無法解析。');
+    e.target.value = '';
+    return;
+  }
+  $('#backup-status').textContent = '還原中…';
+  const { ok, data } = await api('/api/restore', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ backup }),
+  });
+  e.target.value = '';
+  if (ok && data && data.ok) {
+    $('#backup-status').textContent = '已還原 ' + data.recipeCount + ' 道食譜、' + data.imageCount + ' 張圖片。';
+    toast('還原完成');
+    await loadTags();
+    renderFilterBar();
+    await loadRecipes();
+  } else {
+    const msg = (data && data.message) || '還原失敗。';
+    $('#backup-status').textContent = msg;
+    toast('還原失敗：' + msg);
+  }
+});
 
 /* ---------- service worker ---------- */
 if ('serviceWorker' in navigator) {
