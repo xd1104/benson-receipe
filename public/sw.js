@@ -7,9 +7,9 @@
  * Goal: with only a phone and no connection to the host PC, the user can still
  * SEE recipes and images that were loaded before.
  */
-const SHELL_CACHE = 'recipe-shell-v8';
-const DATA_CACHE = 'recipe-data-v8';
-const IMG_CACHE = 'recipe-img-v8';
+const SHELL_CACHE = 'recipe-shell-v9';
+const DATA_CACHE = 'recipe-data-v9';
+const IMG_CACHE = 'recipe-img-v9';
 const KEEP = [SHELL_CACHE, DATA_CACHE, IMG_CACHE];
 
 // Relative paths so the app works both at localhost root and under a GitHub
@@ -23,6 +23,8 @@ const SHELL = [
   BASE + 'manifest.json',
   BASE + 'icons/icon-192.png',
   BASE + 'icons/icon-512.png',
+  BASE + 'icons/icon-maskable-512.png',
+  BASE + 'icons/apple-touch-icon.png',
 ];
 
 self.addEventListener('install', (e) => {
