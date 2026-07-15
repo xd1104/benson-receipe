@@ -4,9 +4,10 @@
   --ink: #2c241d;
   --muted: #8a7d70;
   --line: #e7ded2;
-  --primary: #c2410c;
-  --primary-ink: #ffffff;
-  --primary-soft: #fff1e9;
+  --primary: #D9702B;        /* brand orange — fills (header, buttons, active toggle) */
+  --primary-text: #B4551C;   /* darker orange for orange TEXT on light backgrounds (contrast) */
+  --primary-ink: #ffffff;    /* text on --primary fills */
+  --primary-soft: #fdeee2;
   --danger: #b91c1c;
   --shadow: 0 2px 10px rgba(60, 40, 20, 0.08);
   --radius: 14px;
@@ -46,14 +47,16 @@ body {
 .tabs { display: flex; gap: 6px; }
 .tab {
   border: none;
-  background: rgba(255, 255, 255, 0.16);
-  color: var(--primary-ink);
+  background: rgba(0, 0, 0, 0.16); /* dark overlay so white label stays high-contrast on orange */
+  color: #ffffff;
   padding: 8px 14px;
   border-radius: 999px;
   font-size: 14px;
   cursor: pointer;
 }
-.tab.active { background: var(--primary-ink); color: var(--primary); font-weight: 700; }
+/* topbar is always the orange zone regardless of theme, so pin a fixed dark
+   orange for the active tab's text (white pill background) */
+.tab.active { background: #ffffff; color: #a24d17; font-weight: 700; }
 
 .container { max-width: 960px; margin: 0 auto; padding: 16px; }
 
@@ -101,6 +104,14 @@ input, textarea, select { font-size: 16px; }
   cursor: pointer;
   color: var(--muted);
   line-height: 1;
+  /* enlarge the tap target to ~44px without growing the visual glyph */
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: -8px -10px -8px 0; /* pull back so the bigger hit-box doesn't shift the header */
 }
 
 /* grid */
@@ -140,7 +151,7 @@ input, textarea, select { font-size: 16px; }
 .tag {
   display: inline-block;
   background: var(--primary-soft);
-  color: var(--primary);
+  color: var(--primary-text);
   border-radius: 999px;
   padding: 2px 9px;
   font-size: 11px;
@@ -172,7 +183,7 @@ input, textarea, select { font-size: 16px; }
   margin: 14px 0 6px;
   background: var(--bg);
 }
-.filedrop:hover { border-color: var(--primary); color: var(--primary); }
+.filedrop:hover { border-color: var(--primary-text); color: var(--primary-text); }
 
 .import-list { display: flex; flex-direction: column; gap: 12px; }
 .import-item {
@@ -314,7 +325,7 @@ body.scroll-locked {
 }
 .chip.selected {
   background: var(--primary);
-  border-color: var(--primary);
+  border-color: var(--primary-text);
   color: var(--primary-ink);
   font-weight: 600;
 }
@@ -324,12 +335,12 @@ body.scroll-locked {
 
 /* row-list editor (ingredients / steps) */
 .row-list { display: flex; flex-direction: column; gap: 8px; }
-.row-item { display: flex; align-items: center; gap: 6px; }
+.row-item { display: flex; align-items: center; gap: 8px; }
 .row-item .row-num {
   min-width: 24px;
   text-align: center;
   font-weight: 700;
-  color: var(--primary);
+  color: var(--primary-text);
   font-size: 14px;
 }
 .row-item .row-bullet { min-width: 18px; text-align: center; color: var(--muted); }
@@ -347,9 +358,9 @@ body.scroll-locked {
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--muted);
-  border-radius: 8px;
-  width: 34px;
-  height: 38px;
+  border-radius: 9px;
+  min-width: 44px;   /* comfortable ~44px tap target */
+  min-height: 44px;
   font-size: 15px;
   cursor: pointer;
   flex: none;
@@ -373,9 +384,9 @@ body.scroll-locked {
   font-size: 15px;
   transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
-.row-btn.img:hover { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+.row-btn.img:hover { border-color: var(--primary-text); color: var(--primary-text); background: var(--primary-soft); }
 .row-btn.img:active { transform: scale(0.96); }
-.row-btn.img.has-img { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+.row-btn.img.has-img { border-color: var(--primary-text); color: var(--primary-text); background: var(--primary-soft); }
 
 .step-thumb-wrap {
   flex-basis: 100%;
@@ -425,14 +436,14 @@ body.scroll-locked {
   margin: 6px 0 14px;
 }
 .settings-help { margin-top: 14px; font-size: 14px; }
-.settings-help summary { cursor: pointer; color: var(--primary); font-weight: 600; }
+.settings-help summary { cursor: pointer; color: var(--primary-text); font-weight: 600; }
 .settings-help ol { margin: 10px 0 0; padding-left: 20px; line-height: 1.7; }
 .settings-help code { background: var(--bg); padding: 1px 5px; border-radius: 5px; }
 
 /* read-only (GitHub Pages) note */
 .readonly-note {
   background: var(--primary-soft);
-  color: var(--primary);
+  color: var(--primary-text);
   border-radius: 10px;
   padding: 10px 14px;
   font-size: 14px;
@@ -446,7 +457,7 @@ body.scroll-locked {
   justify-content: center;
   gap: 10px;
   padding: 28px 12px;
-  color: var(--primary);
+  color: var(--primary-text);
   font-size: 15px;
   font-weight: 600;
 }
@@ -454,7 +465,7 @@ body.scroll-locked {
   width: 22px;
   height: 22px;
   border: 3px solid var(--primary-soft);
-  border-top-color: var(--primary);
+  border-top-color: var(--primary-text);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
   flex: none;
@@ -568,7 +579,7 @@ body.scroll-locked {
 .reader-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .reader-h {
   font-size: 19px;
-  color: var(--primary);
+  color: var(--primary-text);
   margin: 20px 0 10px;
   padding-bottom: 6px;
   border-bottom: 2px solid var(--primary-soft);
@@ -627,20 +638,32 @@ body.scroll-locked {
 
 .hidden { display: none !important; }
 
-/* toast */
+/* toast — fixed colours (do NOT flip with theme), orange accent bar, icon */
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom));
   transform: translateX(-50%);
-  background: var(--ink);
-  color: #fff;
-  padding: 11px 18px;
-  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: #2c241d;         /* dark coffee, readable in light AND dark mode */
+  color: #ffffff;
+  padding: 12px 18px 12px 15px;
+  border-left: 4px solid #D9702B;
+  border-radius: 12px;
   font-size: 14px;
-  z-index: 100; /* above every overlay and the dialog */
-  box-shadow: var(--shadow);
+  line-height: 1.4;
+  max-width: calc(100vw - 32px);
+  z-index: 100;               /* above every overlay and the dialog */
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.32);
+  animation: toast-in 0.22s ease;
 }
+.toast .toast-ico { flex: none; font-weight: 700; font-size: 15px; color: #ffb454; }
+.toast.toast-error { border-left-color: #e8654f; }
+.toast.toast-error .toast-ico { color: #ff9b6b; }
+.toast .toast-msg { min-width: 0; }
+@keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
 @media (prefers-color-scheme: dark) {
   :root {
@@ -650,6 +673,7 @@ body.scroll-locked {
     --muted: #a99d8f;
     --line: #3d352e;
     --primary-soft: #3a2418;
+    --primary-text: #eb9256; /* brighter orange for readable text on dark surfaces */
     --shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
   }
 }

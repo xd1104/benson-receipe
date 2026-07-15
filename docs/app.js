@@ -6,10 +6,13 @@ const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
 function toast(msg) {
   const t = $('#toast');
-  t.textContent = msg;
-  t.classList.remove('hidden');
+  const isErr = /失敗|錯誤|未完成|未登入|不可|無法|不支援|太大|過大|離線|請先|沒有/.test(String(msg));
+  t.className = 'toast' + (isErr ? ' toast-error' : ''); // resets 'hidden' too -> visible
+  t.innerHTML = '<span class="toast-ico"></span><span class="toast-msg"></span>';
+  t.querySelector('.toast-ico').textContent = isErr ? '⚠' : '✓';
+  t.querySelector('.toast-msg').textContent = msg; // textContent = safe, no injection
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => t.classList.add('hidden'), 2600);
+  toast._t = setTimeout(() => t.classList.add('hidden'), 2800);
 }
 
 function esc(s) {
@@ -1030,7 +1033,8 @@ function closeEditor() {
 $('#btn-new').addEventListener('click', () => openEditor(null));
 $('#editor-close').addEventListener('click', closeEditor);
 $('#editor-cancel').addEventListener('click', closeEditor);
-$('#editor').addEventListener('click', (e) => { if (e.target.id === 'editor') closeEditor(); });
+// NOTE: the editor deliberately does NOT close on backdrop click — an accidental
+// tap outside used to discard the whole recipe. Close only via ✕ / 取消.
 
 $('#f-image').addEventListener('change', async (e) => {
   const file = e.target.files && e.target.files[0];
