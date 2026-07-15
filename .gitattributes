@@ -1,0 +1,17 @@
+# Keep recipe data and web assets as LF in the working tree so the Node parser
+# (which the app reads with) never sees CRLF after a checkout/pull on Windows.
+*.md text eol=lf
+*.json text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+
+# Batch files must stay CRLF (Windows .bat requirement)
+*.bat text eol=crlf
+
+# Treat images as binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary

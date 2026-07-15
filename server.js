@@ -260,6 +260,7 @@ function parseFrontmatterLine(line) {
 
 function markdownToRecipe(id, text) {
   const r = { id, title: '', tags: [], createdAt: '', updatedAt: '', image: '', ingredients: [], steps: [], notes: '' };
+  text = String(text).replace(/\r\n/g, '\n'); // tolerate CRLF (e.g. after a git checkout/pull on Windows)
   let body = text;
   const fmMatch = /^---\n([\s\S]*?)\n---\n?/.exec(text);
   if (fmMatch) {

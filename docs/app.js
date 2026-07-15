@@ -90,6 +90,7 @@ const FORCE_GH = /[?&]store=github\b/.test(location.search);
 // Client-side mirror of the server's markdownToRecipe (used by GitHubStore).
 function parseRecipeMarkdown(id, text) {
   const r = { id, title: '', tags: [], createdAt: '', updatedAt: '', image: '', ingredients: [], steps: [], notes: '' };
+  text = String(text).replace(/\r\n/g, '\n'); // tolerate CRLF line endings
   let body = text;
   const fm = /^---\n([\s\S]*?)\n---\n?/.exec(text);
   if (fm) {
@@ -200,6 +201,15 @@ function normalizeSteps(steps) {
   return out;
 }
 
+// Images uploaded this session: filename -> dataURL. Lets us show a just-saved
+// image instantly (optimistic) before the CDN/API has it.
+const localImageCache = {};
+function displayImageUrl(filename) {
+  if (!filename) return '';
+  if (localImageCache[filename]) return localImageCache[filename];
+  return STORE.imageUrl(filename);
+}
+
 /* --- GitHub PAT (shared key), stored only in this browser --- */
 const TOKEN_KEY = 'recipe_gh_pat';
 function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; } }
@@ -248,13 +258,25 @@ const GitHubStore = {
   imageUrl(f) { return this.rawBase + '/data/images/' + encodeURIComponent(f); },
 
   async listRecipes() {
-    const res = await this._ghFetch(this.apiBase + '/contents/data/recipes?ref=' + GH.branch, {}, false);
+    const hasKey = this.canWrite();
+    // listing itself: authenticated when we have a key (fresher, higher rate limit)
+    const res = await this._ghFetch(this.apiBase + '/contents/data/recipes?ref=' + GH.branch, {}, hasKey);
     const files = await res.json();
     const mds = (Array.isArray(files) ? files : []).filter((f) => f.name.endsWith('.md'));
     const out = [];
     for (const f of mds) {
       try {
-        const txt = await fetch(f.download_url).then((r) => r.text());
+        let txt;
+        if (hasKey) {
+          // fresh content via Contents API (bypasses the raw CDN cache)
+          const r = await this._ghFetch(f.url, {}, true);
+          const j = await r.json();
+          txt = j.content ? new TextDecoder().decode(Uint8Array.from(atob(j.content.replace(/\n/g, '')), (c) => c.charCodeAt(0))) : '';
+        } else {
+          // anonymous: raw CDN + cache-buster keyed on the blob sha so edits show promptly
+          const bust = (f.download_url.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(f.sha);
+          txt = await fetch(f.download_url + bust).then((r) => r.text());
+        }
         out.push(parseRecipeMarkdown(f.name.replace(/\.md$/, ''), txt));
       } catch { /* skip one bad file */ }
     }
@@ -339,6 +361,7 @@ const GitHubStore = {
     const ext = m[2].toLowerCase() === 'jpeg' ? 'jpg' : m[2].toLowerCase();
     const name = Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.' + ext;
     await this._putFile('data/images/' + name, m[3], 'mobile: upload image ' + name, null);
+    localImageCache[name] = dataUrl; // show instantly before the CDN/API has it
     return name;
   },
 
@@ -540,7 +563,9 @@ function renderTagMgr() {
         const data = await STORE.renameTag(orig, to);
         availableTags = data.tags;
         if (selectedTags.has(orig)) { selectedTags.delete(orig); selectedTags.add(to); }
-        await loadRecipes();
+        applyTagRenameLocal(orig, to); // optimistic
+        renderRecipes();
+        renderFilterBar();
         renderTagMgr();
         toast('已改名，更新 ' + data.recipesUpdated + ' 道食譜');
       } catch (e) {
@@ -556,7 +581,9 @@ function renderTagMgr() {
         const data = await STORE.deleteTag(orig);
         availableTags = data.tags;
         selectedTags.delete(orig);
-        await loadRecipes();
+        applyTagDeleteLocal(orig); // optimistic
+        renderRecipes();
+        renderFilterBar();
         renderTagMgr();
         toast('已刪除，更新 ' + data.recipesUpdated + ' 道食譜');
       } catch (e) {
@@ -638,7 +665,7 @@ function updateStepThumb(row) {
   const wrap = $('.step-thumb-wrap', row);
   if (!wrap) return;
   const img = $('.step-thumb', row);
-  const src = row._imageDataUrl ? row._imageDataUrl : row._image ? STORE.imageUrl(row._image) : '';
+  const src = row._imageDataUrl ? row._imageDataUrl : row._image ? displayImageUrl(row._image) : '';
   const imgBtn = $('.row-btn.img', row);
   if (src) {
     img.src = src;
@@ -705,6 +732,33 @@ function renderFilterBar() {
   );
 }
 
+/* optimistic in-memory updates — reflect a successful write immediately,
+   without waiting for a (possibly CDN-stale) re-fetch */
+function upsertRecipeLocal(recipe) {
+  if (!recipe || !recipe.id) return;
+  const i = recipes.findIndex((x) => x.id === recipe.id);
+  if (i >= 0) recipes[i] = recipe;
+  else recipes.push(recipe);
+  recipes.sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+  renderRecipes();
+}
+function removeRecipeLocal(id) {
+  recipes = recipes.filter((x) => x.id !== id);
+  renderRecipes();
+}
+function applyTagRenameLocal(from, to) {
+  recipes.forEach((r) => {
+    if ((r.tags || []).includes(from)) {
+      const uniq = [];
+      r.tags.map((t) => (t === from ? to : t)).forEach((t) => { if (!uniq.includes(t)) uniq.push(t); });
+      r.tags = uniq;
+    }
+  });
+}
+function applyTagDeleteLocal(name) {
+  recipes.forEach((r) => { if (r.tags) r.tags = r.tags.filter((t) => t !== name); });
+}
+
 function renderRecipes() {
   const q = $('#search').value.trim().toLowerCase();
   const grid = $('#recipe-grid');
@@ -718,7 +772,7 @@ function renderRecipes() {
   grid.innerHTML = filtered
     .map((r) => {
       const thumb = r.image
-        ? `<img class="thumb" src="${STORE.imageUrl(r.image)}" alt="${esc(r.title)}" />`
+        ? `<img class="thumb" src="${displayImageUrl(r.image)}" alt="${esc(r.title)}" />`
         : `<div class="thumb placeholder">🍲</div>`;
       const tags = (r.tags || []).slice(0, 3).map((t) => `<span class="tag">${esc(t)}</span>`).join('');
       return `<article class="recipe-card" data-id="${esc(r.id)}">
@@ -743,7 +797,7 @@ function openReader(id) {
   readerId = id;
   $('#reader-title').textContent = r.title || '未命名食譜';
   const cover = $('#reader-cover');
-  if (r.image) { cover.src = STORE.imageUrl(r.image); cover.classList.remove('hidden'); }
+  if (r.image) { cover.src = displayImageUrl(r.image); cover.classList.remove('hidden'); }
   else { cover.src = ''; cover.classList.add('hidden'); }
   $('#reader-tags').innerHTML = (r.tags || []).map((t) => `<span class="tag">${esc(t)}</span>`).join('');
   $('#reader-ings').innerHTML =
@@ -753,7 +807,7 @@ function openReader(id) {
       .map((s) => {
         const text = typeof s === 'string' ? s : s && s.text ? s.text : '';
         const image = typeof s === 'object' && s && s.image ? s.image : '';
-        const img = image ? `<img class="reader-step-img" src="${STORE.imageUrl(image)}" alt="步驟圖" />` : '';
+        const img = image ? `<img class="reader-step-img" src="${displayImageUrl(image)}" alt="步驟圖" />` : '';
         return `<li><div class="reader-step-text">${esc(text)}</div>${img}</li>`;
       })
       .join('') || '<li class="muted">（尚未填步驟）</li>';
@@ -796,7 +850,7 @@ function openEditor(id) {
   fillEditor(r || {});
   const prev = $('#f-img-preview');
   if (r && r.image) {
-    prev.src = STORE.imageUrl(r.image);
+    prev.src = displayImageUrl(r.image);
     prev.classList.remove('hidden');
     $('#f-img-clear').classList.remove('hidden');
   } else {
@@ -865,10 +919,10 @@ $('#editor-save').addEventListener('click', async () => {
   const prevLabel = btn.textContent;
   btn.textContent = STORE.local ? '儲存中…' : '上傳到 GitHub…';
   try {
-    await STORE.saveRecipe(payload);
+    const saved = await STORE.saveRecipe(payload);
     toast('已儲存');
     closeEditor();
-    await loadRecipes();
+    upsertRecipeLocal(saved); // optimistic: show new content immediately
   } catch (e) {
     toast('儲存失敗：' + (e.userMessage || e.message || '請稍後再試'));
   } finally {
@@ -880,11 +934,12 @@ $('#editor-save').addEventListener('click', async () => {
 $('#editor-delete').addEventListener('click', async () => {
   if (!editingId) return;
   if (!confirm('確定刪除這道食譜？')) return;
+  const id = editingId;
   try {
-    await STORE.deleteRecipe(editingId);
+    await STORE.deleteRecipe(id);
     toast('已刪除');
     closeEditor();
-    await loadRecipes();
+    removeRecipeLocal(id); // optimistic
   } catch (e) {
     toast('刪除失敗：' + (e.userMessage || e.message || ''));
   }
@@ -1084,6 +1139,42 @@ $('#settings-clear') && $('#settings-clear').addEventListener('click', async () 
   renderFilterBar();
   await loadRecipes();
 });
+
+/* ---------- manual refresh ---------- */
+$('#btn-refresh') && $('#btn-refresh').addEventListener('click', async () => {
+  const btn = $('#btn-refresh');
+  btn.disabled = true;
+  const prev = btn.textContent;
+  btn.textContent = '更新中…';
+  try {
+    await loadTags();
+    renderFilterBar();
+    await loadRecipes();
+    toast('已更新');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prev;
+  }
+});
+
+/* ---------- background scroll lock while an overlay is open ---------- */
+let savedScrollY = 0;
+function anyModalOpen() { return $$('.modal').some((m) => !m.classList.contains('hidden')); }
+function refreshScrollLock() {
+  const open = anyModalOpen();
+  const locked = document.body.classList.contains('scroll-locked');
+  if (open && !locked) {
+    savedScrollY = window.scrollY || window.pageYOffset || 0;
+    document.body.style.top = -savedScrollY + 'px';
+    document.body.classList.add('scroll-locked');
+  } else if (!open && locked) {
+    document.body.classList.remove('scroll-locked');
+    document.body.style.top = '';
+    window.scrollTo(0, savedScrollY);
+  }
+}
+// react to any modal being shown/hidden (they toggle the .hidden class)
+$$('.modal').forEach((m) => new MutationObserver(refreshScrollLock).observe(m, { attributes: true, attributeFilter: ['class'] }));
 
 /* ---------- boot ---------- */
 (async function boot() {

@@ -216,6 +216,7 @@ body {
   justify-content: center;
   z-index: 40;
   padding: 0;
+  overscroll-behavior: contain;
 }
 @media (min-width: 640px) {
   .modal { align-items: center; padding: 20px; }
@@ -225,12 +226,22 @@ body {
   width: 100%;
   max-width: 620px;
   max-height: 92vh;
+  max-height: 92dvh; /* stable against mobile URL bar */
   border-radius: 18px 18px 0 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
 @media (min-width: 640px) { .modal-card { border-radius: 18px; } }
+
+/* lock the background page while any overlay is open (no scroll chaining) */
+body.scroll-locked {
+  position: fixed;
+  left: 0;
+  right: 0;
+  width: 100%;
+  overflow: hidden;
+}
 .modal-head {
   display: flex;
   align-items: center;
@@ -239,7 +250,12 @@ body {
   border-bottom: 1px solid var(--line);
 }
 .modal-head h2 { margin: 0; font-size: 18px; }
-.modal-body { padding: 16px 18px; overflow-y: auto; }
+.modal-body {
+  padding: 16px 18px;
+  overflow-y: auto;
+  overscroll-behavior: contain; /* stop scroll from chaining to the page behind */
+  -webkit-overflow-scrolling: touch;
+}
 .modal-foot {
   display: flex;
   align-items: center;
