@@ -1,8 +1,8 @@
 ---
 title: "義式燉飯 (Risotto)"
-tags: ["義式"]
+tags: ["西式"]
 createdAt: "2026-07-15T05:37:10.499Z"
-updatedAt: "2026-07-15T07:00:38.664Z"
+updatedAt: "2026-07-15T08:48:47.217Z"
 image: ""
 ---
 
