@@ -4,9 +4,13 @@
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-function toast(msg) {
+/* isErr 有傳就以它為準，沒傳才用關鍵字猜（既有呼叫端都只傳一個參數，行為不變）。
+   鑰匙圈模組會明確告訴我們這則是不是警示，猜關鍵字會把「先輸入密碼喔」判成綠勾。 */
+function toast(msg, isErrExplicit) {
   const t = $('#toast');
-  const isErr = /失敗|錯誤|未完成|未登入|不可|無法|不支援|太大|過大|離線|請先|沒有/.test(String(msg));
+  const isErr = (isErrExplicit === undefined)
+    ? /失敗|錯誤|未完成|未登入|不可|無法|不支援|太大|過大|離線|請先|沒有/.test(String(msg))
+    : !!isErrExplicit;
   t.className = 'toast' + (isErr ? ' toast-error' : ''); // resets 'hidden' too -> visible
   t.innerHTML = '<span class="toast-ico"></span><span class="toast-msg"></span>';
   t.querySelector('.toast-ico').textContent = isErr ? '⚠' : '✓';
@@ -253,9 +257,15 @@ function displayImageUrl(filename) {
 
 /* --- GitHub PAT (shared key), stored only in this browser --- */
 const TOKEN_KEY = 'recipe_gh_pat';
-function getToken() { try { return localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; } }
+/* key 名稱刻意不動（跟舊版完全相容，手動貼過金鑰的裝置不用重貼）。
+   多讀一個 sessionStorage：鑰匙圈解鎖時沒勾「記住這台裝置」就存那裡，
+   關掉分頁即失效（借別人的電腦用）。 */
+function getToken() { try { return sessionStorage.getItem(TOKEN_KEY) || localStorage.getItem(TOKEN_KEY) || ''; } catch { return ''; } }
 function setToken(t) { try { localStorage.setItem(TOKEN_KEY, t); } catch {} }
-function clearToken() { try { localStorage.removeItem(TOKEN_KEY); } catch {} }
+function clearToken() {
+  try { localStorage.removeItem(TOKEN_KEY); } catch {}
+  try { sessionStorage.removeItem(TOKEN_KEY); } catch {}
+}
 
 const LocalStore = {
   local: true,
@@ -517,7 +527,30 @@ const GitHubStore = {
 const GH_DEBUG = /[?&]ghdebug\b/.test(location.search);
 const STORE = IS_LOCAL && !FORCE_GH ? LocalStore : GitHubStore;
 
+/* ---------- 鑰匙圈解鎖 ----------
+ * 手機／別人的電腦不用再貼一長串 PAT：每個人一組密碼，任何裝置輸一次就能編輯。
+ * 金鑰的密文放在公開的 xd1104/keyring repo，解開後照樣寫進既有的 recipe_gh_pat，
+ * 所以 GitHubStore 一行都不用改。模組正本在 Claude Work/keyring/client/keyring-unlock.js。
+ * 本機版（LocalStore）不啟用——電腦上不需要鑰匙。
+ * 「⚙ 設定 → 貼金鑰」入口刻意保留：萬一鑰匙圈壞掉還能手動貼一把救回來。
+ * init() 一定要在第一次 applyModeUI()（＝boot）之前跑，它會同步把記住的金鑰寫回
+ * recipe_gh_pat，否則開機第一次判斷 canWrite() 會是錯的。 */
+const KR = typeof Keyring !== 'undefined' ? Keyring : null;
+const KR_ON = !!KR && !STORE.local;
+if (KR) {
+  KR.init({
+    enabled: KR_ON,
+    appId: 'recipe-book',      // 對應 keyring.json 裡每個人的 apps["recipe-book"]
+    tokenKey: TOKEN_KEY,       // 沿用舊 key，不另開新的
+    // ns 沿用預設 keyring.recipe-book.（跟旅途手帳的 keyring.travel-book. 分開，裝置記憶互不污染）
+    toast: (msg, isErr) => toast(msg, isErr), // 模組知道這則是不是警示，別讓 toast 去猜關鍵字
+    // 解鎖／換人／後台換了金鑰 -> 重新載入（有金鑰走認證 API，沒金鑰退回唯讀）
+    onChange: () => { if (booted) refreshAfterKeyChange(); },
+  });
+}
+
 /* ---------- state ---------- */
+let booted = false; // boot() 跑完才讓 Keyring.onChange 去動畫面
 let recipes = [];
 let availableTags = [];
 let selectedTags = new Set();
@@ -593,7 +626,7 @@ async function quickAddTag() {
 }
 
 /* ---------- tag manager ---------- */
-$('#f-managetags-btn').addEventListener('click', openTagMgr);
+$('#f-managetags-btn').addEventListener('click', () => { if (requireWrite('管理標籤')) openTagMgr(); });
 $('#tagmgr-close').addEventListener('click', closeTagMgr);
 $('#tagmgr-done').addEventListener('click', closeTagMgr);
 $('#tagmgr').addEventListener('click', (e) => { if (e.target.id === 'tagmgr') closeTagMgr(); });
@@ -1005,7 +1038,10 @@ function openReader(id) {
 function closeReader() { $('#reader').classList.add('hidden'); readerId = null; }
 $('#reader-close').addEventListener('click', closeReader);
 $('#reader').addEventListener('click', (e) => { if (e.target.id === 'reader') closeReader(); });
-$('#reader-edit').addEventListener('click', () => { const id = readerId; closeReader(); openEditor(id); });
+$('#reader-edit').addEventListener('click', () => {
+  if (!requireWrite('編輯食譜')) return;
+  const id = readerId; closeReader(); openEditor(id);
+});
 
 /* ---------- editor modal ---------- */
 function ensureTagsAvailable(tags) {
@@ -1052,7 +1088,7 @@ function closeEditor() {
   pendingImageDataUrl = null;
 }
 
-$('#btn-new').addEventListener('click', () => openEditor(null));
+$('#btn-new').addEventListener('click', () => { if (requireWrite('新增食譜')) openEditor(null); });
 $('#editor-close').addEventListener('click', closeEditor);
 $('#editor-cancel').addEventListener('click', closeEditor);
 // NOTE: the editor deliberately does NOT close on backdrop click — an accidental
@@ -1298,7 +1334,39 @@ function applyModeUI() {
   show('#btn-settings', !STORE.local);
   // read-only note only when the user cannot write (Pages, no key)
   show('#readonly-note', !canWrite);
+  // 有鑰匙圈時，唯讀提示的舊文案（「請在電腦上操作」）已經不成立，改指向解鎖藥丸
+  const roNote = $('#readonly-note');
+  if (KR_ON && roNote) roNote.textContent = '📖 目前是唯讀瀏覽。點上面的「只看看模式・點我解鎖」選自己、輸密碼就能編輯。';
+  renderKeyChip();
   if (!STORE.local) switchView('list'); // never sit on the (hidden) import view
+}
+
+/* 身分藥丸：本體樣式由 keyring-unlock.js 自帶，這裡只負責放進 #kr-slot。
+   已解鎖時顯示「誰在用」（點開可換人），未解鎖時就是解鎖入口。 */
+function renderKeyChip() {
+  const slot = $('#kr-slot');
+  if (!slot) return;
+  slot.classList.toggle('hidden', !KR_ON);
+  slot.innerHTML = KR_ON ? KR.chipHtml() : '';
+}
+
+/* 唯讀守門。食譜本原本的守門是「把寫入入口藏起來」（applyModeUI 的 show(...)），
+   這裡不改那套，只多一層網子：真的走到寫入動作時（入口還沒重繪、或鍵盤觸發）
+   把解鎖 sheet 端到他面前並帶上理由，而不是丟一句冷冰冰的 toast 叫他自己去找設定。 */
+function requireWrite(reason) {
+  if (STORE.canWrite()) return true;
+  if (KR_ON) { KR.open(reason || ''); return false; }
+  toast('唯讀模式：請先到「⚙ 設定」貼上金鑰');
+  return false;
+}
+
+/* 金鑰換了（鑰匙圈解鎖／換人／手動貼或清除）之後，把畫面整個對回來：
+   寫入入口、標籤、篩選列、食譜列表（有金鑰走認證 API，沒金鑰退回唯讀 raw）。 */
+async function refreshAfterKeyChange() {
+  applyModeUI();
+  await loadTags();
+  renderFilterBar();
+  await loadRecipes();
 }
 
 /* ---------- settings (GitHub key) ---------- */
@@ -1318,10 +1386,7 @@ $('#settings-save') && $('#settings-save').addEventListener('click', async () =>
   setToken(t);
   $('#settings-status').textContent = '已儲存，重新載入中…';
   toast('金鑰已儲存');
-  applyModeUI();
-  await loadTags();
-  renderFilterBar();
-  await loadRecipes();
+  await refreshAfterKeyChange();
   closeSettings();
 });
 $('#settings-clear') && $('#settings-clear').addEventListener('click', async () => {
@@ -1329,10 +1394,10 @@ $('#settings-clear') && $('#settings-clear').addEventListener('click', async () 
   $('#settings-token').value = '';
   $('#settings-status').textContent = '已清除金鑰，回到唯讀。';
   toast('金鑰已清除');
-  applyModeUI();
-  await loadTags();
-  renderFilterBar();
-  await loadRecipes();
+  // 鑰匙圈記著的身分也要一起清掉，否則下次載入 init() 又把金鑰寫回來，看起來像沒清成功。
+  // forget() 自己會觸發 onChange -> refreshAfterKeyChange，別再重跑一次（會兩份載入打架）。
+  if (KR_ON) KR.forget();
+  else await refreshAfterKeyChange();
 });
 
 /* ---------- manual refresh ---------- */
@@ -1378,4 +1443,7 @@ $$('.modal').forEach((m) => new MutationObserver(refreshScrollLock).observe(m, {
   await loadTags();
   await loadRecipes();
   renderFilterBar();
+  booted = true;
+  // 這台裝置從沒解鎖過、也沒看過解鎖 sheet -> 進站主動端一次，之後永遠不再自動彈
+  if (KR_ON) KR.maybeIntro();
 })();

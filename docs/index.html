@@ -34,6 +34,9 @@
         </div>
         <button id="btn-new" class="btn btn-primary">＋ 新增食譜</button>
       </div>
+      <!-- 鑰匙圈身分藥丸（誰在用／點我解鎖）。放在唯讀提示正上方：這一帶就是
+           食譜本說明「你現在能不能改東西」的地方，解鎖動作也該在同一處。 -->
+      <div id="kr-slot" class="kr-slot hidden"></div>
       <p id="readonly-note" class="readonly-note hidden">📖 唯讀瀏覽模式（資料來自 GitHub）。新增或編輯食譜請在電腦上操作。</p>
       <div id="filter-bar" class="chips filter-bar"></div>
       <div id="load-status" class="load-status hidden">
@@ -228,6 +231,8 @@
 
   <div id="toast" class="toast hidden"></div>
 
+  <!-- 鑰匙圈解鎖模組（正本在 keyring/client/keyring-unlock.js，改那邊再複製過來）：要在 app.js 之前載入 -->
+  <script src="keyring-unlock.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
