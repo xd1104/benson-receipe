@@ -530,7 +530,8 @@ const STORE = IS_LOCAL && !FORCE_GH ? LocalStore : GitHubStore;
 /* ---------- 鑰匙圈解鎖 ----------
  * 手機／別人的電腦不用再貼一長串 PAT：每個人一組密碼，任何裝置輸一次就能編輯。
  * 金鑰的密文放在公開的 xd1104/keyring repo，解開後照樣寫進既有的 recipe_gh_pat，
- * 所以 GitHubStore 一行都不用改。模組正本在 Claude Work/keyring/client/keyring-unlock.js。
+ * 所以 GitHubStore 一行都不用改。模組正本在 Claude Work/keyring/client/keyring-unlock.js，
+ * 這個 repo 裡的 keyring-unlock.js 由 keyring 的 sync-unlock.yml 自動同步過來——別手改。
  * 本機版（LocalStore）不啟用——電腦上不需要鑰匙。
  * 「⚙ 設定 → 貼金鑰」入口刻意保留：萬一鑰匙圈壞掉還能手動貼一把救回來。
  * init() 一定要在第一次 applyModeUI()（＝boot）之前跑，它會同步把記住的金鑰寫回

@@ -21,7 +21,7 @@
 - 手貼金鑰現在只是**救援入口**：日常改用下一節的「鑰匙圈解鎖」（選自己＋輸密碼）。
 
 ## 鑰匙圈解鎖（2026-08-19 上線＋2026-08-20 視覺 v3 公版；別誤改）
-- **一人一組密碼取代「貼 PAT」**：`public/keyring-unlock.js`（**正本在 `Claude Work/keyring/client/`，要改改那邊再複製過來**）抓公開的 `xd1104/keyring` repo 的 `keyring.json`（只有密文），使用者選自己＋輸密碼，瀏覽器用 WebCrypto（PBKDF2-SHA256 600000 → AES-GCM 256）解出金鑰。`appId: "recipe-book"`。
+- **一人一組密碼取代「貼 PAT」**：`public/keyring-unlock.js`（**正本在 `Claude Work/keyring/client/`，要改改那邊**——2026-08-21 起 keyring 的 `.github/workflows/sync-unlock.yml` 會在正本 push 後自動把 `public/` 與 `docs/` 兩份同步過來，**這個 repo 裡的那份手改會被蓋掉**）抓公開的 `xd1104/keyring` repo 的 `keyring.json`（只有密文），使用者選自己＋輸密碼，瀏覽器用 WebCrypto（PBKDF2-SHA256 600000 → AES-GCM 256）解出金鑰。`appId: "recipe-book"`。
 - **`recipe_gh_pat` 這個 key 不動**（跟舊版完全相容，GitHubStore 一行都沒改，手動貼過金鑰的裝置不用重貼）。`getToken()` 現在**先讀 sessionStorage**：解鎖時沒勾「記住這台裝置」就存那裡，關掉分頁即失效（借別人的電腦用）；`clearToken()` 兩邊都清。
 - **身分藥丸放 `#kr-slot`**（列表工具列下方、`#readonly-note` 正上方）。理由：食譜本說明「你現在能不能改東西」的地方就是這一帶（唯讀提示 ＋ ⚙ 設定），解鎖動作放同一區才讀得懂；header 的 tabs 是導覽列，塞身分會把「匯入整理」擠掉。**本機版（LocalStore）不顯示**——電腦不用鑰匙。
 - **守門照食譜本既有架構**：`applyModeUI()` 原本的 `body.readonly` ＋ `show('#btn-new'…)`「把入口藏起來」**沒有改**；另外加 `requireWrite(reason)` 當網子掛在三個寫入入口（新增／編輯／管理標籤），真的被點到就**升起解鎖畫面（v3 起是滿版）並帶理由條**，而不是丟一句 toast 叫他自己去找設定。**別把 requireWrite 當死碼清掉**（入口平常是藏的，但重繪時序／鍵盤都可能走到）。
