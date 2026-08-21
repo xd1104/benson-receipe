@@ -7,9 +7,9 @@
  * Goal: with only a phone and no connection to the host PC, the user can still
  * SEE recipes and images that were loaded before.
  */
-const SHELL_CACHE = 'recipe-shell-v18';
-const DATA_CACHE = 'recipe-data-v18';
-const IMG_CACHE = 'recipe-img-v18';
+const SHELL_CACHE = 'recipe-shell-v19';
+const DATA_CACHE = 'recipe-data-v19';
+const IMG_CACHE = 'recipe-img-v19';
 const KEEP = [SHELL_CACHE, DATA_CACHE, IMG_CACHE];
 
 // Relative paths so the app works both at localhost root and under a GitHub
@@ -98,6 +98,17 @@ self.addEventListener('fetch', (e) => {
   // clear offline response on failure. Never cached.
   if (url.pathname.startsWith('/api/')) {
     e.respondWith(fetch(req).catch(() => offlineJson()));
+    return;
+  }
+
+  /* Keyring unlock module: network-first (deliberately NOT part of the cache-first
+   * app shell). The source of truth lives in the keyring repo and is synced here by
+   * keyring's sync-unlock.yml — those updates do NOT bump SHELL_CACHE below, so under
+   * cache-first a phone would stay on the first version it ever cached, forever.
+   * It is precached in SHELL, so offline networkFirst always finds a cached copy and
+   * never falls through to offlineJson(). */
+  if (req.method === 'GET' && url.pathname.endsWith('/keyring-unlock.js')) {
+    e.respondWith(networkFirst(req, SHELL_CACHE));
     return;
   }
 

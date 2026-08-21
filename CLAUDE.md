@@ -51,7 +51,8 @@
 - **第二條滲漏路徑：宿主的「繼承屬性」（QA 退件修）**——跟「權重被壓」是不同的病，**權重擋不住它**（模組根本沒宣告那個屬性）。實測抓到：旅途手帳有 `-webkit-tap-highlight-color:transparent`、食譜本沒有 ⇒ **同一顆頭像磚在 iPhone 上一個 App 點下去會閃灰、另一個不會**；還有 `text-size-adjust`、隱藏 checkbox 的 `font-size`。修法：在 `#kr-full` 與 `.kr-chip` **把會繼承的屬性一次寫死**，`#kr-full input` 補 `font-size:16px`。
   - **驗法**：`getComputedStyle` 全部屬性（~340 項）逐項比對兩個 App，不是挑幾項看。目前差異 = **0**（只剩 `.kr-chip .kr-cta` 的 `color` 與 16 個 `currentColor` 衍生屬性＝唯一允許吃 `--acc` 的鉤子）。宿主 `:root` 的變數會被繼承進 computed style，但**模組不讀它們**，不算滲漏。
 - **改這個模組的驗收線**：同一份模組在食譜本與旅途手帳裡，解鎖畫面的 **computed style 必須逐項相同**（「公版」的機器定義）；`#kr-full` 子樹 grep 不到 `var(--acc`／`--ink`／`--line`…；`.kr-go` 底色必須 `rgb(246,239,225)`、`.kr-chip` 必須 `rgb(246,242,234)`；`#kr-pw` `font-size` 必須 `16px`；觸控目標 ≥44px。
-- 改前端記得 `sw.js` **三個 cache 版本一起 +1**（目前 **v18**），`SHELL` 要含 `keyring-unlock.js`。**食譜本刻意沒有 `APP_VER` 那套版本提示機制**（那是旅途手帳的），別順手加。
+- 改前端記得 `sw.js` **三個 cache 版本一起 +1**（目前 **v19**），`SHELL` 要含 `keyring-unlock.js`。
+- ⚠️ **`keyring-unlock.js` 在 `sw.js` 走 network-first，刻意不跟 app shell 一起 cache-first**（2026-08-21 加）：它的正本在 keyring repo、由 CI 自動同步過來，**更新時不會跳這裡的 cache 版本號**；若走 cache-first，手機會永遠停在第一次快取到的那一版，模組的修正永遠到不了使用者手上。它仍在 `SHELL` 預先快取，所以離線時一定拿得到快取、不會落到 `offlineJson()`。**別為了「統一策略」把它併回 app shell。****食譜本刻意沒有 `APP_VER` 那套版本提示機制**（那是旅途手帳的），別順手加。
 - 本機測試：`localStorage["keyring.recipe-book.src"]` 可指到別份 keyring.json（例如本機後台 `http://localhost:4620/keyring.json`）；`?store=github` 可在 localhost 強制走 GitHubStore 來測整條解鎖流程。
 
 ## 資料格式
